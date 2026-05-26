@@ -79,6 +79,15 @@ def _ask_for_missing(missing: list) -> str:
     return "💬 What currency was that in?"
 
 
+async def _safe_edit(callback: CallbackQuery, text: str) -> None:
+    """Edit the callback's message if it is still accessible (None for stale callbacks)."""
+    if callback.message is not None:
+        try:
+            await callback.message.edit_text(text)
+        except Exception:
+            logger.exception("edit_text failed")
+
+
 async def _resolve_text(message: types.Message) -> Optional[str]:
     if message.voice:
         try:
@@ -191,10 +200,10 @@ async def cb_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         await asyncio.to_thread(sheets.append_expense, build_sheet_user(callback.from_user), fields)
     except Exception:
         logger.exception("sheet append failed")
-        await callback.message.edit_text("⚠️ Couldn't save to the sheet — not logged. Try again.")
+        await _safe_edit(callback, "⚠️ Couldn't save to the sheet — not logged. Try again.")
         await callback.answer()
         return
-    await callback.message.edit_text("✅\n" + format_confirmation(fields))
+    await _safe_edit(callback, "✅\n" + format_confirmation(fields))
     await callback.answer()
 
 
@@ -205,7 +214,7 @@ async def cb_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(None)
     await state.update_data(pending=None)
     if fields:
-        await callback.message.edit_text("❌\n" + format_confirmation(fields))
+        await _safe_edit(callback, "❌\n" + format_confirmation(fields))
     else:
-        await callback.message.edit_text("❌")
+        await _safe_edit(callback, "❌")
     await callback.answer()
