@@ -61,3 +61,21 @@ async def test_answer_query_returns_text(monkeypatch):
         [{"Person": "Mario", "Amount": 340}],
     )
     assert answer == "Mario spent 340 EUR."
+
+
+@pytest.mark.asyncio
+async def test_classify_and_extract_api_error_returns_unclear(monkeypatch):
+    mock_create = AsyncMock(side_effect=RuntimeError("api down"))
+    monkeypatch.setattr(brain._client.messages, "create", mock_create)
+
+    result = await brain.classify_and_extract("Mario gave 100 euro")
+    assert result["type"] == "unclear"
+
+
+@pytest.mark.asyncio
+async def test_classify_and_extract_unknown_type_returns_unclear(monkeypatch):
+    mock_create = AsyncMock(return_value=_fake_response('{"type": "something_else"}'))
+    monkeypatch.setattr(brain._client.messages, "create", mock_create)
+
+    result = await brain.classify_and_extract("blah")
+    assert result["type"] == "unclear"
