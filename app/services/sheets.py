@@ -83,8 +83,6 @@ def _worksheet_for(user: SheetUser):
         or _sanitize_title(user.username or "")
         or str(user.id)
     )
-    if not desired:
-        desired = str(user.id)
 
     title = desired
     if title in _existing_titles():

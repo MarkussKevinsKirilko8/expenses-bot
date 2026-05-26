@@ -18,7 +18,12 @@ def test_sanitize_title_truncates_long_names():
 def test_append_expense_writes_row_in_column_order(monkeypatch):
     captured = {}
     fake_ws = MagicMock()
-    fake_ws.append_row.side_effect = lambda row, **kw: captured.setdefault("row", row)
+
+    def _capture(row, **kw):
+        captured["row"] = row
+        captured["opts"] = kw
+
+    fake_ws.append_row.side_effect = _capture
     monkeypatch.setattr(sheets, "_worksheet_for", lambda user: fake_ws)
 
     user = SheetUser(id=111, first_name="Mario", username=None)
@@ -41,6 +46,7 @@ def test_append_expense_writes_row_in_column_order(monkeypatch):
         "weekly shop",
         "used 100 euro on groceries",
     ]
+    assert captured["opts"].get("value_input_option") == "USER_ENTERED"
 
 
 def test_read_all_reads_from_users_tab(monkeypatch):
