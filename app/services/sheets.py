@@ -19,12 +19,13 @@ TOTAL_ROW = 2
 DATA_START_ROW = 3    # newest expenses are inserted here (older rows shift down)
 _COLUMN_WIDTHS = [110, 320, 150, 140]  # Amount, Description, Date, Category
 
-REGISTRY_TITLE = "_registry"
+REGISTRY_TITLE = "settings"
 _INVALID_TITLE_CHARS = set(r"/\?*[]:")
 _MAX_TITLE_LEN = 80  # leave headroom for the " <CURRENCY>" suffix
 
-# Number format that shows negatives in red (applied to the Amount column).
-_RED_NEG = {"numberFormat": {"type": "NUMBER", "pattern": "0.##;[Red]-0.##"}}
+# Number format: always 2 decimals, negatives in red (applied to the Amount column).
+# The decimal separator shown (comma vs dot) follows the spreadsheet locale.
+_RED_NEG = {"numberFormat": {"type": "NUMBER", "pattern": "0.00;[Red]-0.00"}}
 
 _SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -33,7 +34,7 @@ SheetUser = namedtuple("SheetUser", ["id", "first_name", "username"])
 
 # In-memory registry cache:
 #   {str(user_id): {"base": <clean name>, "tabs": {<CURRENCY>: <tab title>}}}
-# Durable source of truth is the _registry tab (survives restarts).
+# Durable source of truth is the "settings" tab (survives restarts).
 _registry_cache: Optional[dict] = None
 
 # Serialises tab creation so two near-simultaneous messages (e.g. the same
@@ -128,10 +129,11 @@ def _new_tab_layout(ws) -> None:
     on row 2, rows 1-2 frozen, roomy columns, negative amounts in red."""
     last_col = chr(ord("A") + len(HEADER) - 1)
     try:
-        # Row 1: bold header.
+        # Row 1: bold, centered header.
         ws.update(f"A{HEADER_ROW}", [HEADER])
         ws.format(
-            f"A{HEADER_ROW}:{last_col}{HEADER_ROW}", {"textFormat": {"bold": True}}
+            f"A{HEADER_ROW}:{last_col}{HEADER_ROW}",
+            {"textFormat": {"bold": True}, "horizontalAlignment": "CENTER"},
         )
         # Row 2: live total of every amount below it. INDIRECT keeps the range
         # literal ("A3:A") so inserting a new row at the top doesn't make Sheets
