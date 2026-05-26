@@ -146,10 +146,6 @@ async def handle_start(message: types.Message, state: FSMContext) -> None:
     if not message.from_user or not settings.is_allowed(message.from_user.id):
         return
     await state.set_state(None)
-    try:
-        await asyncio.to_thread(sheets._worksheet_for, build_sheet_user(message.from_user))
-    except Exception:
-        logger.exception("failed to provision user worksheet on /start")
     await message.answer("👋 Send an expense (text or voice), or ask about your expenses.")
 
 

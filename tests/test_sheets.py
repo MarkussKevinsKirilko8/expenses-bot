@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock
 
-import pytest
-
 from app.services import sheets
 from app.services.sheets import SheetUser
 
@@ -12,122 +10,160 @@ def test_sanitize_title_strips_invalid_chars():
 
 
 def test_sanitize_title_truncates_long_names():
-    assert len(sheets._sanitize_title("x" * 200)) <= 90
+    assert len(sheets._sanitize_title("x" * 200)) <= sheets._MAX_TITLE_LEN
 
 
-def test_append_expense_writes_row_in_column_order(monkeypatch):
+def test_resolve_base_new_user(monkeypatch):
+    monkeypatch.setattr(sheets, "_load_registry", lambda: {})
+    base = sheets._resolve_base(SheetUser(id=1, first_name="Mario", username=None))
+    assert base == "Mario"
+
+
+def test_resolve_base_collision_appends_id(monkeypatch):
+    monkeypatch.setattr(
+        sheets, "_load_registry", lambda: {"1": {"base": "Mario", "tabs": {}}}
+    )
+    base = sheets._resolve_base(SheetUser(id=2, first_name="Mario", username=None))
+    assert base == "Mario (2)"
+
+
+def test_resolve_base_returning_user_keeps_original(monkeypatch):
+    monkeypatch.setattr(
+        sheets,
+        "_load_registry",
+        lambda: {"5": {"base": "Bob", "tabs": {"EUR": "Bob EUR"}}},
+    )
+    base = sheets._resolve_base(SheetUser(id=5, first_name="Robert", username=None))
+    assert base == "Bob"
+
+
+def test_resolve_base_falls_back_to_username_then_id(monkeypatch):
+    monkeypatch.setattr(sheets, "_load_registry", lambda: {})
+    assert sheets._resolve_base(SheetUser(id=9, first_name=None, username="cool")) == "cool"
+    assert sheets._resolve_base(SheetUser(id=9, first_name=None, username=None)) == "9"
+
+
+def test_append_expense_routes_by_currency_and_inserts_on_top(monkeypatch):
     captured = {}
     fake_ws = MagicMock()
 
-    def _capture(row, **kw):
-        captured["row"] = row
+    def _insert(values, index, **kw):
+        captured["values"] = values
+        captured["index"] = index
         captured["opts"] = kw
 
-    fake_ws.append_row.side_effect = _capture
-    monkeypatch.setattr(sheets, "_worksheet_for", lambda user: fake_ws)
+    fake_ws.insert_row.side_effect = _insert
 
-    user = SheetUser(id=111, first_name="Mario", username=None)
+    routed = {}
+
+    def _ws_for(user, currency):
+        routed["currency"] = currency
+        return fake_ws
+
+    monkeypatch.setattr(sheets, "_worksheet_for", _ws_for)
+
+    user = SheetUser(id=1, first_name="Mario", username=None)
     sheets.append_expense(
         user,
         {
-            "category": "groceries",
             "amount": -100,
-            "currency": "EUR",
-            "description": "weekly shop",
-            "raw_text": "used 100 euro on groceries",  # present but must NOT be written
+            "currency": "eur",  # lower-case on purpose
+            "description": "wallet",
+            "category": "shopping",
+            "raw_text": "ignored",
         },
         now="2026-05-26 14:00",
     )
-    # Amount, Currency, Description, Date, Category
-    assert captured["row"] == [
-        -100,
-        "EUR",
-        "weekly shop",
-        "2026-05-26 14:00",
-        "groceries",
-    ]
+
+    assert routed["currency"] == "EUR"  # normalised to upper-case
+    # Amount, Description, Date, Category (no currency column)
+    assert captured["values"] == [-100, "wallet", "2026-05-26 14:00", "shopping"]
+    assert captured["index"] == sheets.DATA_START_ROW  # newest on top
     assert captured["opts"].get("value_input_option") == "USER_ENTERED"
 
 
-def test_read_all_reads_from_users_tab(monkeypatch):
-    fake_ws = MagicMock()
-    fake_ws.get_all_records.return_value = [{"Amount": -100}]
-    monkeypatch.setattr(sheets, "_worksheet_for", lambda user: fake_ws)
-
-    rows = sheets.read_all(SheetUser(id=111, first_name="Mario", username=None))
-    assert rows == [{"Amount": -100}]
-
-
-def test_worksheet_for_new_user_creates_named_tab(monkeypatch):
+def test_worksheet_for_creates_named_currency_tab(monkeypatch):
     created = {}
     fake_ws = MagicMock()
     fake_ss = MagicMock()
     fake_ss.worksheets.return_value = []
 
-    def _add_worksheet(title, rows, cols):
+    def _add(title, rows, cols):
         created["title"] = title
         return fake_ws
 
-    fake_ss.add_worksheet.side_effect = _add_worksheet
+    fake_ss.add_worksheet.side_effect = _add
     monkeypatch.setattr(sheets, "_spreadsheet", lambda: fake_ss)
     monkeypatch.setattr(sheets, "_load_registry", lambda: {})
+    monkeypatch.setattr(sheets, "_resolve_base", lambda user: "Mario")
+    monkeypatch.setattr(sheets, "_new_tab_layout", lambda ws: None)
     registered = {}
-    monkeypatch.setattr(sheets, "_register", lambda uid, title: registered.update({uid: title}))
+    monkeypatch.setattr(
+        sheets, "_register",
+        lambda uid, base, cur, title: registered.update({"row": (uid, base, cur, title)}),
+    )
 
-    sheets._worksheet_for(SheetUser(id=111, first_name="Mario", username="mar"))
-    assert created["title"] == "Mario"
-    assert registered == {111: "Mario"}
-    fake_ws.update.assert_called_once()
-    fake_ws.format.assert_called_once()      # header made bold
-    fake_ws.freeze.assert_called_once()      # header row frozen
+    ws = sheets._worksheet_for(SheetUser(id=1, first_name="Mario", username=None), "EUR")
+    assert created["title"] == "Mario EUR"
+    assert registered["row"] == (1, "Mario", "EUR", "Mario EUR")
+    assert ws is fake_ws
 
 
-def test_worksheet_for_name_collision_appends_id(monkeypatch):
-    created = {}
-    fake_ws = MagicMock()
+def test_worksheet_for_returning_currency_uses_registered_tab(monkeypatch):
     fake_ss = MagicMock()
-    existing = MagicMock()
-    existing.title = "Mario"
-    fake_ss.worksheets.return_value = [existing]
-
-    def _add(title, rows, cols):
-        created["title"] = title
-        return fake_ws
-
-    fake_ss.add_worksheet.side_effect = _add
+    fake_ss.worksheet.return_value = "EXISTING"
     monkeypatch.setattr(sheets, "_spreadsheet", lambda: fake_ss)
+    monkeypatch.setattr(
+        sheets,
+        "_load_registry",
+        lambda: {"1": {"base": "Mario", "tabs": {"EUR": "Mario EUR"}}},
+    )
+
+    ws = sheets._worksheet_for(SheetUser(id=1, first_name="Mario", username=None), "EUR")
+    fake_ss.worksheet.assert_called_once_with("Mario EUR")
+    assert ws == "EXISTING"
+
+
+def test_read_all_gathers_currencies_and_injects_currency(monkeypatch):
+    eur_ws = MagicMock()
+    eur_ws.get_all_values.return_value = [
+        ["=SUM(A4:A)"],                                    # row 1 total
+        [""],                                              # row 2 blank
+        ["Amount", "Description", "Date", "Category"],     # row 3 header
+        ["-100", "wallet", "2026-05-26 14:00", "shopping"],  # row 4 data
+    ]
+    usd_ws = MagicMock()
+    usd_ws.get_all_values.return_value = [
+        ["=SUM(A4:A)"],
+        [""],
+        ["Amount", "Description", "Date", "Category"],
+        ["50", "tip", "2026-05-27 10:00", ""],
+    ]
+
+    def _ws(title):
+        return {"Mario EUR": eur_ws, "Mario USD": usd_ws}[title]
+
+    fake_ss = MagicMock()
+    fake_ss.worksheet.side_effect = _ws
+    monkeypatch.setattr(sheets, "_spreadsheet", lambda: fake_ss)
+    monkeypatch.setattr(
+        sheets,
+        "_load_registry",
+        lambda: {"1": {"base": "Mario", "tabs": {"EUR": "Mario EUR", "USD": "Mario USD"}}},
+    )
+
+    rows = sheets.read_all(SheetUser(id=1, first_name="Mario", username=None))
+    assert len(rows) == 2
+    assert {
+        "Amount": "-100", "Description": "wallet", "Date": "2026-05-26 14:00",
+        "Category": "shopping", "Currency": "EUR",
+    } in rows
+    assert {
+        "Amount": "50", "Description": "tip", "Date": "2026-05-27 10:00",
+        "Category": "", "Currency": "USD",
+    } in rows
+
+
+def test_read_all_unknown_user_returns_empty(monkeypatch):
     monkeypatch.setattr(sheets, "_load_registry", lambda: {})
-    monkeypatch.setattr(sheets, "_register", lambda uid, title: None)
-
-    sheets._worksheet_for(SheetUser(id=999, first_name="Mario", username=None))
-    assert created["title"] == "Mario (999)"
-
-
-def test_worksheet_for_returning_user_uses_registered_tab(monkeypatch):
-    fake_ss = MagicMock()
-    fake_ss.worksheet.return_value = "EXISTING_WS"
-    monkeypatch.setattr(sheets, "_spreadsheet", lambda: fake_ss)
-    monkeypatch.setattr(sheets, "_load_registry", lambda: {"111": "Mario"})
-
-    ws = sheets._worksheet_for(SheetUser(id=111, first_name="Mario", username=None))
-    fake_ss.worksheet.assert_called_once_with("Mario")
-    assert ws == "EXISTING_WS"
-
-
-def test_fallback_to_username_then_id(monkeypatch):
-    created = {}
-    fake_ws = MagicMock()
-    fake_ss = MagicMock()
-    fake_ss.worksheets.return_value = []
-
-    def _add(title, rows, cols):
-        created["title"] = title
-        return fake_ws
-
-    fake_ss.add_worksheet.side_effect = _add
-    monkeypatch.setattr(sheets, "_spreadsheet", lambda: fake_ss)
-    monkeypatch.setattr(sheets, "_load_registry", lambda: {})
-    monkeypatch.setattr(sheets, "_register", lambda uid, title: None)
-
-    sheets._worksheet_for(SheetUser(id=222, first_name=None, username="cooluser"))
-    assert created["title"] == "cooluser"
+    assert sheets.read_all(SheetUser(id=404, first_name="Ghost", username=None)) == []
