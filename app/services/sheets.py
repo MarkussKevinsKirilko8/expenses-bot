@@ -91,15 +91,9 @@ def _worksheet_for(user: SheetUser):
         title = f"{desired} ({user.id})"
 
     ws = ss.add_worksheet(title=title, rows=1000, cols=len(HEADER))
-    _write_header(ws)
+    ws.update("A1", [HEADER])
     _register(user.id, title)
     return ws
-
-
-def _write_header(ws) -> None:
-    update = getattr(ws, "update", None)
-    if callable(update):
-        update("A1", [HEADER])
 
 
 def append_expense(user: SheetUser, fields: dict, now: Optional[str] = None) -> None:

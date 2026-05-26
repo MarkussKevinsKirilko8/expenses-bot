@@ -81,7 +81,12 @@ def test_worksheet_for_name_collision_appends_id(monkeypatch):
     existing = MagicMock()
     existing.title = "Mario"
     fake_ss.worksheets.return_value = [existing]
-    fake_ss.add_worksheet.side_effect = lambda title, rows, cols: created.setdefault("title", title) or fake_ws
+
+    def _add(title, rows, cols):
+        created["title"] = title
+        return fake_ws
+
+    fake_ss.add_worksheet.side_effect = _add
     monkeypatch.setattr(sheets, "_spreadsheet", lambda: fake_ss)
     monkeypatch.setattr(sheets, "_load_registry", lambda: {})
     monkeypatch.setattr(sheets, "_register", lambda uid, title: None)
@@ -106,7 +111,12 @@ def test_fallback_to_username_then_id(monkeypatch):
     fake_ws = MagicMock()
     fake_ss = MagicMock()
     fake_ss.worksheets.return_value = []
-    fake_ss.add_worksheet.side_effect = lambda title, rows, cols: created.setdefault("title", title) or fake_ws
+
+    def _add(title, rows, cols):
+        created["title"] = title
+        return fake_ws
+
+    fake_ss.add_worksheet.side_effect = _add
     monkeypatch.setattr(sheets, "_spreadsheet", lambda: fake_ss)
     monkeypatch.setattr(sheets, "_load_registry", lambda: {})
     monkeypatch.setattr(sheets, "_register", lambda uid, title: None)
