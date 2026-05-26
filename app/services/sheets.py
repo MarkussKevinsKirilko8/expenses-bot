@@ -71,13 +71,32 @@ def _existing_titles() -> set:
     return {ws.title for ws in _spreadsheet().worksheets()}
 
 
+# Pixel widths per column, in HEADER order (Date, Description, Category, Currency, Amount).
+_COLUMN_WIDTHS = [150, 320, 140, 90, 110]
+
+
 def _format_new_tab(ws) -> None:
-    """Make a freshly created tab readable: bold + frozen header, auto-fit columns."""
+    """Make a freshly created tab readable: bold + frozen header, roomy columns."""
     last_col = chr(ord("A") + len(HEADER) - 1)
     try:
         ws.format(f"A1:{last_col}1", {"textFormat": {"bold": True}})
         ws.freeze(rows=1)
-        ws.columns_auto_resize(0, len(HEADER))
+        requests = [
+            {
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": ws.id,
+                        "dimension": "COLUMNS",
+                        "startIndex": i,
+                        "endIndex": i + 1,
+                    },
+                    "properties": {"pixelSize": width},
+                    "fields": "pixelSize",
+                }
+            }
+            for i, width in enumerate(_COLUMN_WIDTHS)
+        ]
+        ws.spreadsheet.batch_update({"requests": requests})
     except Exception:
         logger.exception("failed to format new tab")
 
