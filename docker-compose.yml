@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8006:8006"
+    env_file:
+      - .env
+    volumes:
+      # The service-account credential is mounted at runtime (kept out of git
+      # and out of the image). It must exist next to this file on the server.
+      - ./service_account.json:/app/service_account.json:ro
+    restart: unless-stopped

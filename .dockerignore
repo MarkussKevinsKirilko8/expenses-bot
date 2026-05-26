@@ -1,0 +1,13 @@
+# Keep the image lean and keep secrets out of it.
+venv/
+.git/
+.gitignore
+__pycache__/
+*.pyc
+.pytest_cache/
+docs/
+tests/
+
+# Provided at runtime, not baked into the image:
+.env
+service_account.json
