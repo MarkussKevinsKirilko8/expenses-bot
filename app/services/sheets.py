@@ -130,10 +130,12 @@ def _new_tab_layout(ws) -> None:
         ws.update(
             "A1", [[f"=SUM(A{DATA_START_ROW}:A)"]], value_input_option="USER_ENTERED"
         )
-        ws.format("A1", {"textFormat": {"bold": True}})
+        # A1 gets bold + red-negative in ONE call; ranges below stay disjoint from
+        # A1 and the header row so no format call can clobber another.
+        ws.format("A1", {"textFormat": {"bold": True}, **_RED_NEG})
         ws.freeze(rows=HEADER_ROW)
-        # Red negatives across the whole Amount column (covers the total + future rows).
-        ws.format("A:A", _RED_NEG)
+        # Red negatives on the data part of the Amount column.
+        ws.format(f"A{DATA_START_ROW}:A10000", _RED_NEG)
         requests = [
             {
                 "updateDimensionProperties": {
