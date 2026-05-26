@@ -1,3 +1,4 @@
+import logging
 from collections import namedtuple
 from datetime import datetime
 from functools import lru_cache
@@ -8,7 +9,9 @@ from google.oauth2.service_account import Credentials
 
 from app.config.settings import settings
 
-HEADER = ["Date", "Category", "Amount", "Currency", "Description", "Raw text"]
+logger = logging.getLogger(__name__)
+
+HEADER = ["Date", "Description", "Category", "Currency", "Amount"]
 
 REGISTRY_TITLE = "_registry"
 _INVALID_TITLE_CHARS = set(r"/\?*[]:")
@@ -68,6 +71,17 @@ def _existing_titles() -> set:
     return {ws.title for ws in _spreadsheet().worksheets()}
 
 
+def _format_new_tab(ws) -> None:
+    """Make a freshly created tab readable: bold + frozen header, auto-fit columns."""
+    last_col = chr(ord("A") + len(HEADER) - 1)
+    try:
+        ws.format(f"A1:{last_col}1", {"textFormat": {"bold": True}})
+        ws.freeze(rows=1)
+        ws.columns_auto_resize(0, len(HEADER))
+    except Exception:
+        logger.exception("failed to format new tab")
+
+
 def _worksheet_for(user: SheetUser):
     reg = _load_registry()
     title = reg.get(str(user.id))
@@ -90,6 +104,7 @@ def _worksheet_for(user: SheetUser):
 
     ws = ss.add_worksheet(title=title, rows=1000, cols=len(HEADER))
     ws.update("A1", [HEADER])
+    _format_new_tab(ws)
     _register(user.id, title)
     return ws
 
@@ -98,11 +113,10 @@ def append_expense(user: SheetUser, fields: dict, now: Optional[str] = None) -> 
     timestamp = now or datetime.now().strftime("%Y-%m-%d %H:%M")
     row = [
         timestamp,
-        fields.get("category", ""),
-        fields.get("amount", ""),
-        fields.get("currency", ""),
         fields.get("description", ""),
-        fields.get("raw_text", ""),
+        fields.get("category", ""),
+        fields.get("currency", ""),
+        fields.get("amount", ""),
     ]
     _worksheet_for(user).append_row(row, value_input_option="USER_ENTERED")
 

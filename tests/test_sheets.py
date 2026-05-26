@@ -34,17 +34,17 @@ def test_append_expense_writes_row_in_column_order(monkeypatch):
             "amount": -100,
             "currency": "EUR",
             "description": "weekly shop",
-            "raw_text": "used 100 euro on groceries",
+            "raw_text": "used 100 euro on groceries",  # present but must NOT be written
         },
         now="2026-05-26 14:00",
     )
+    # Date, Description, Category, Currency, Amount  (no Raw text)
     assert captured["row"] == [
         "2026-05-26 14:00",
-        "groceries",
-        -100,
-        "EUR",
         "weekly shop",
-        "used 100 euro on groceries",
+        "groceries",
+        "EUR",
+        -100,
     ]
     assert captured["opts"].get("value_input_option") == "USER_ENTERED"
 
@@ -78,6 +78,8 @@ def test_worksheet_for_new_user_creates_named_tab(monkeypatch):
     assert created["title"] == "Mario"
     assert registered == {111: "Mario"}
     fake_ws.update.assert_called_once()
+    fake_ws.format.assert_called_once()      # header made bold
+    fake_ws.freeze.assert_called_once()      # header row frozen
 
 
 def test_worksheet_for_name_collision_appends_id(monkeypatch):
