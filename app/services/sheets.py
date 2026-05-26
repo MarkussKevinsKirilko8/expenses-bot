@@ -143,12 +143,14 @@ def _new_tab_layout(ws) -> None:
             [[f'=SUM(INDIRECT("A{DATA_START_ROW}:A"))']],
             value_input_option="USER_ENTERED",
         )
-        # Bold + red-negative in one call so the format ranges stay disjoint.
-        ws.format(f"A{TOTAL_ROW}", {"textFormat": {"bold": True}, **_RED_NEG})
+        # Bold + centered + red-negative in one call so the ranges stay disjoint.
+        center = {"horizontalAlignment": "CENTER"}
+        ws.format(f"A{TOTAL_ROW}", {"textFormat": {"bold": True}, **center, **_RED_NEG})
         # Freeze header + total so they stay visible while scrolling.
         ws.freeze(rows=TOTAL_ROW)
-        # Red negatives on the data part of the Amount column.
-        ws.format(f"A{DATA_START_ROW}:A10000", _RED_NEG)
+        # Center all values; the Amount column also gets the red 2-decimal format.
+        ws.format(f"A{DATA_START_ROW}:A10000", {**center, **_RED_NEG})
+        ws.format(f"B{DATA_START_ROW}:{last_col}10000", center)
         requests = [
             {
                 "updateDimensionProperties": {
