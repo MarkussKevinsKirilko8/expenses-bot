@@ -133,10 +133,12 @@ def _new_tab_layout(ws) -> None:
         ws.format(
             f"A{HEADER_ROW}:{last_col}{HEADER_ROW}", {"textFormat": {"bold": True}}
         )
-        # Row 2: live total of every amount below it (TOTAL_ROW is not in the range).
+        # Row 2: live total of every amount below it. INDIRECT keeps the range
+        # literal ("A3:A") so inserting a new row at the top doesn't make Sheets
+        # drift the formula's start reference down and skip the newest rows.
         ws.update(
             f"A{TOTAL_ROW}",
-            [[f"=SUM(A{DATA_START_ROW}:A)"]],
+            [[f'=SUM(INDIRECT("A{DATA_START_ROW}:A"))']],
             value_input_option="USER_ENTERED",
         )
         # Bold + red-negative in one call so the format ranges stay disjoint.
