@@ -15,22 +15,34 @@ def _fake_response(text: str) -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_classify_and_extract_returns_log(monkeypatch):
+async def test_classify_and_extract_returns_signed_log(monkeypatch):
     payload = {
         "type": "log",
-        "person": "Mario",
-        "category": "groceries",
-        "amount": 100,
+        "category": "",
+        "amount": -100,
         "currency": "EUR",
-        "description": "weekly shop",
+        "description": "new wallet",
     }
     mock_create = AsyncMock(return_value=_fake_response(json.dumps(payload)))
     monkeypatch.setattr(brain._client.messages, "create", mock_create)
 
-    result = await brain.classify_and_extract("Mario gave Marsels 100 euro for groceries")
+    result = await brain.classify_and_extract("used 100 euro on a new wallet")
     assert result["type"] == "log"
-    assert result["amount"] == 100
-    assert result["person"] == "Mario"
+    assert result["amount"] == -100
+    assert result["currency"] == "EUR"
+    assert result["category"] == ""
+    assert "person" not in result
+
+
+@pytest.mark.asyncio
+async def test_classify_and_extract_positive_amount(monkeypatch):
+    payload = {"type": "log", "category": "", "amount": 300, "currency": "EUR", "description": "from Marsels"}
+    monkeypatch.setattr(
+        brain._client.messages, "create",
+        AsyncMock(return_value=_fake_response(json.dumps(payload))),
+    )
+    result = await brain.classify_and_extract("Marsels gave me 300 euro")
+    assert result["amount"] == 300
 
 
 @pytest.mark.asyncio

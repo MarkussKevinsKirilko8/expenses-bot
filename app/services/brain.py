@@ -12,7 +12,7 @@ _client = AsyncAnthropic(api_key=settings.claude_api_key)
 
 MODEL = "claude-opus-4-7"
 
-CLASSIFY_SYSTEM = """You process messages for an expense-tracking bot. \
+CLASSIFY_SYSTEM = """You process messages for a personal expense-tracking bot. \
 A message is EITHER a new expense to record, OR a question about past expenses.
 
 Return ONLY a single JSON object, no prose, no markdown fences.
@@ -20,25 +20,31 @@ Return ONLY a single JSON object, no prose, no markdown fences.
 If the message records an expense, return:
 {
   "type": "log",
-  "person": "who the expense relates to (e.g. Mario), or empty string",
-  "category": "short category you infer (food, fuel, materials, rent, ...) or empty string",
-  "amount": <number, no currency symbol>,
-  "currency": "ISO-ish code you infer (EUR, USD, ...). Default EUR if a euro amount with no explicit currency.",
-  "description": "what it was for, in the message's own language"
+  "category": "<ONLY if the user explicitly names a category; otherwise empty string. NEVER invent or guess a category>",
+  "amount": <a SIGNED number with NO currency symbol. NEGATIVE if money went OUT (spent, used, paid, bought), POSITIVE if money came IN (received, was given to the user). Use null if no amount is stated.>,
+  "currency": "<currency code ONLY if the user states it (EUR, USD, GBP, ...); otherwise empty string. NEVER assume a currency.>",
+  "description": "what it was about, in the message's own language"
 }
 
-If the message asks a question about past expenses (totals, who spent what, when), return:
+Sign examples:
+- "used 100 euro on a new wallet" -> amount: -100 (money went out)
+- "spent 12.50 on lunch" -> amount: -12.5
+- "Marsels gave me 300 euro" -> amount: 300 (money came in)
+- "got paid 50" -> amount: 50
+
+If the message asks a question about past expenses (totals, balances, what was spent/received, when), return:
 {"type": "query"}
 
-If it is an expense but you cannot find a clear amount, return:
+If you genuinely cannot tell whether it is an expense or a question, return:
 {"type": "unclear", "reason": "short reason in the message's language"}
 
-Always infer fields from the message's own language; do not translate names or descriptions."""
+Infer fields from the message's own language; do not translate the description."""
 
-ANSWER_SYSTEM = """You answer questions about an expense ledger. \
-You are given the user's question and the full ledger as JSON rows. \
-Compute the answer (sums, filters by person/category/date as needed) and reply \
-in plain language IN THE SAME LANGUAGE AS THE QUESTION. Be concise. \
+ANSWER_SYSTEM = """You answer questions about a personal expense ledger. \
+You are given the user's question and their ledger as JSON rows. \
+Amounts are SIGNED: negative = money spent/out, positive = money received/in. \
+Compute the answer (totals, net balance, filters by category/date as needed) and \
+reply in plain language IN THE SAME LANGUAGE AS THE QUESTION. Be concise. \
 If the data does not contain the answer, say so plainly."""
 
 
