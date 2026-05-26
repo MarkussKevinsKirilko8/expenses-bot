@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from aiogram import F, Router, types
@@ -60,7 +61,7 @@ async def _process_text(message: types.Message, state: FSMContext, text: str) ->
 
     if kind == "query":
         try:
-            rows = sheets.read_all()
+            rows = await asyncio.to_thread(sheets.read_all)
             answer = await brain.answer_query(text, rows)
         except Exception:
             logger.exception("query answering failed")
@@ -124,7 +125,7 @@ async def cb_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         return
     try:
-        sheets.append_expense(fields)
+        await asyncio.to_thread(sheets.append_expense, fields)
     except Exception:
         logger.exception("sheet append failed")
         await callback.message.edit_text("⚠️ Couldn't save to the sheet — not logged. Try again.")

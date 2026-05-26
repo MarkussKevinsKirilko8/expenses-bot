@@ -16,8 +16,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    dp.shutdown.set()
+    await dp.stop_polling()
     polling_task.cancel()
+    try:
+        await polling_task
+    except asyncio.CancelledError:
+        pass
     await bot.session.close()
 
 

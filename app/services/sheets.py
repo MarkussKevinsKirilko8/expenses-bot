@@ -20,6 +20,7 @@ def _client() -> gspread.Client:
     return gspread.authorize(creds)
 
 
+@lru_cache(maxsize=1)
 def _worksheet():
     sheet = _client().open_by_key(settings.google_sheet_id)
     ws = sheet.sheet1
