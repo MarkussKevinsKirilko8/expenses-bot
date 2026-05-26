@@ -1,5 +1,4 @@
 import logging
-from typing import Any
 
 from aiogram import F, Router, types
 from aiogram.filters import CommandStart
@@ -88,7 +87,7 @@ async def handle_start(message: types.Message) -> None:
 
 @router.message(F.voice)
 async def handle_voice(message: types.Message, state: FSMContext) -> None:
-    if not settings.is_allowed(message.from_user.id):
+    if not message.from_user or not settings.is_allowed(message.from_user.id):
         return
     try:
         file = await message.bot.get_file(message.voice.file_id)
@@ -108,7 +107,7 @@ async def handle_voice(message: types.Message, state: FSMContext) -> None:
 
 @router.message(F.text)
 async def handle_text(message: types.Message, state: FSMContext) -> None:
-    if not settings.is_allowed(message.from_user.id):
+    if not message.from_user or not settings.is_allowed(message.from_user.id):
         return
     text = (message.text or "").strip()
     if not text:
