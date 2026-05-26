@@ -11,7 +11,7 @@ from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-HEADER = ["Date", "Description", "Category", "Currency", "Amount"]
+HEADER = ["Amount", "Currency", "Description", "Date", "Category"]
 
 REGISTRY_TITLE = "_registry"
 _INVALID_TITLE_CHARS = set(r"/\?*[]:")
@@ -71,8 +71,8 @@ def _existing_titles() -> set:
     return {ws.title for ws in _spreadsheet().worksheets()}
 
 
-# Pixel widths per column, in HEADER order (Date, Description, Category, Currency, Amount).
-_COLUMN_WIDTHS = [150, 320, 140, 90, 110]
+# Pixel widths per column, in HEADER order (Amount, Currency, Description, Date, Category).
+_COLUMN_WIDTHS = [110, 90, 320, 150, 140]
 
 
 def _format_new_tab(ws) -> None:
@@ -131,11 +131,11 @@ def _worksheet_for(user: SheetUser):
 def append_expense(user: SheetUser, fields: dict, now: Optional[str] = None) -> None:
     timestamp = now or datetime.now().strftime("%Y-%m-%d %H:%M")
     row = [
-        timestamp,
-        fields.get("description", ""),
-        fields.get("category", ""),
-        fields.get("currency", ""),
         fields.get("amount", ""),
+        fields.get("currency", ""),
+        fields.get("description", ""),
+        timestamp,
+        fields.get("category", ""),
     ]
     _worksheet_for(user).append_row(row, value_input_option="USER_ENTERED")
 

@@ -38,13 +38,13 @@ def test_append_expense_writes_row_in_column_order(monkeypatch):
         },
         now="2026-05-26 14:00",
     )
-    # Date, Description, Category, Currency, Amount  (no Raw text)
+    # Amount, Currency, Description, Date, Category
     assert captured["row"] == [
-        "2026-05-26 14:00",
-        "weekly shop",
-        "groceries",
-        "EUR",
         -100,
+        "EUR",
+        "weekly shop",
+        "2026-05-26 14:00",
+        "groceries",
     ]
     assert captured["opts"].get("value_input_option") == "USER_ENTERED"
 
