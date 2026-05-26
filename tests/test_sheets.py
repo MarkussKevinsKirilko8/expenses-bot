@@ -1,5 +1,7 @@
 from unittest.mock import MagicMock
 
+import gspread
+
 from app.services import sheets
 from app.services.sheets import SheetUser
 
@@ -93,6 +95,8 @@ def test_worksheet_for_creates_named_currency_tab(monkeypatch):
         return fake_ws
 
     fake_ss.add_worksheet.side_effect = _add
+    # No existing tab with that title -> forces creation.
+    fake_ss.worksheet.side_effect = gspread.WorksheetNotFound
     monkeypatch.setattr(sheets, "_spreadsheet", lambda: fake_ss)
     monkeypatch.setattr(sheets, "_load_registry", lambda: {})
     monkeypatch.setattr(sheets, "_resolve_base", lambda user: "Mario")
@@ -127,16 +131,14 @@ def test_worksheet_for_returning_currency_uses_registered_tab(monkeypatch):
 def test_read_all_gathers_currencies_and_injects_currency(monkeypatch):
     eur_ws = MagicMock()
     eur_ws.get_all_values.return_value = [
-        ["=SUM(A4:A)"],                                    # row 1 total
-        [""],                                              # row 2 blank
-        ["Amount", "Description", "Date", "Category"],     # row 3 header
-        ["-100", "wallet", "2026-05-26 14:00", "shopping"],  # row 4 data
+        ["Amount", "Description", "Date", "Category"],       # row 1 header
+        ["=SUM(A3:A)"],                                      # row 2 total
+        ["-100", "wallet", "2026-05-26 14:00", "shopping"],  # row 3 data
     ]
     usd_ws = MagicMock()
     usd_ws.get_all_values.return_value = [
-        ["=SUM(A4:A)"],
-        [""],
         ["Amount", "Description", "Date", "Category"],
+        ["=SUM(A3:A)"],
         ["50", "tip", "2026-05-27 10:00", ""],
     ]
 

@@ -22,7 +22,7 @@ If the message records an expense, return:
   "type": "log",
   "category": "<ONLY if the user explicitly names a category; otherwise empty string. NEVER invent or guess a category>",
   "amount": <a SIGNED number with NO currency symbol. NEGATIVE if money went OUT (spent, used, paid, bought), POSITIVE if money came IN (received, was given to the user). Use null if no amount is stated.>,
-  "currency": "<currency code ONLY if the user states it (EUR, USD, GBP, ...); otherwise empty string. NEVER assume a currency.>",
+  "currency": "<the 3-letter ISO currency CODE if the user names a currency, else empty string. Normalise words/symbols to the code: euro/euros/eur/€ -> EUR, dollar/dollars/usd/$ -> USD, pound/pounds/gbp/£ -> GBP, etc. Always upper-case. NEVER assume a currency if none is stated.>",
   "description": "what it was about, in the message's own language"
 }
 
