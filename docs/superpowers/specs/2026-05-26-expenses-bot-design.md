@@ -184,3 +184,35 @@ the port only serves `/health`.
 - Editing/deleting existing entries via the bot.
 - Per-person balances or running totals computed automatically.
 - Multi-sheet / multi-currency conversion.
+
+---
+
+## Revision v2 (2026-05-26) — team feedback
+
+Changes after the first deploy round, approved by the user:
+
+### Columns (Person removed)
+Each user's sheet now has: **Date · Category · Amount · Currency · Description · Raw text**. The "Person" column and any person parsing are removed.
+
+### Signed amounts (direction)
+`Amount` is a signed number: **negative** when money goes out (spent/used/bought/paid), **positive** when it comes in (given/received). Claude infers the sign from the message. Example: "used 100 for a wallet" → `-100`; "Marsels gave 300" → `+300`.
+
+### Category never invented
+Claude only fills `category` when the user explicitly states one; otherwise it stays empty. Claude must not guess categories.
+
+### Amount + currency required → clarification flow
+`amount` and `currency` are required. If either is missing from a logged expense, the bot does NOT save — it asks a follow-up question ("How much was it?" / "What currency?"). The reply is combined with the original text and re-parsed; once both are present, the normal confirmation card appears. Currency is always asked when missing (no default). A `/cancel` command abandons a half-finished entry. Category remains optional and never blocks.
+
+### Confirmation history (UX)
+The pending confirmation card no longer shows a 📝. After the user taps a button, the message is preserved and prefixed with **✅** (approved) or **❌** (canceled) — both keep the parsed details, so the chat is a readable log of what was and wasn't saved. (Previously cancel replaced the content with a bare ❌.)
+
+### Per-user sheets (tabs in the one spreadsheet)
+Each Telegram user gets their own **tab (worksheet)** inside the existing spreadsheet — never mixed.
+- A behind-the-scenes `_registry` tab maps **Telegram ID → tab title** (source of truth, so returning users always hit the same tab and same-named users never merge).
+- New tab title = sanitized **first name** → else **username** → else **Telegram ID**. Invalid Google Sheets title characters (`/ \ ? * [ ] :`) are stripped.
+- If the desired title is already taken by a *different* user, the bot appends the ID (e.g. `Mario (12345)`); the common case stays a clean `Mario`.
+- The tab (with header) is created on the user's first message.
+- Logging and queries operate only on the requesting user's tab.
+
+### Module impact
+`sheets.py` (per-user routing + registry), `brain.py` (new schema: no person, signed amount, no invented category, no currency default), `handlers.py` (clarification FSM, /cancel, confirmation-history edits, per-user SheetUser routing). The systemd unit was already replaced by Docker Compose.
