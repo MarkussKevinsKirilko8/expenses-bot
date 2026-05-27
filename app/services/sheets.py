@@ -25,6 +25,7 @@ _MAX_TITLE_LEN = 95
 # Always 2 decimals, negatives red (decimal separator follows the sheet locale).
 _RED_NEG = {"numberFormat": {"type": "NUMBER", "pattern": "0.00;[Red]-0.00"}}
 _CENTER = {"horizontalAlignment": "CENTER"}
+_LEFT = {"horizontalAlignment": "LEFT"}
 
 _SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
@@ -149,10 +150,10 @@ def _new_tab_layout(ws) -> None:
     last_col = chr(ord("A") + len(HEADER) - 1)
     try:
         ws.update([HEADER], "A1", value_input_option="RAW")
-        # Column-wide formatting (kept disjoint: column A vs columns B..E).
+        # Amount column centered; the rest (Currency, Description, Date, Category) left.
         ws.format("A:A", {**_CENTER, **_RED_NEG})
-        ws.format(f"B:{last_col}", _CENTER)
-        # Header on top of the column formats so it ends up bold + centered.
+        ws.format(f"B:{last_col}", _LEFT)
+        # Header stays bold + centered across all columns (overrides the column align on row 1).
         ws.format(f"A1:{last_col}1", {"textFormat": {"bold": True}, **_CENTER})
         ws.freeze(rows=1)
         requests = [
