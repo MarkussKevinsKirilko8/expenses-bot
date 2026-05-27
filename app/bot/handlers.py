@@ -57,19 +57,21 @@ def resolve_counterparty(parsed: dict, sender_id) -> tuple:
 
     Returns (counterparty_id, counterparty_name, description). When the named
     person is a single known bot user (not the sender), returns their id+name for
-    a linked transfer (shown as 👤). When there's no name, or it's unknown or
-    ambiguous, the ids are None and the name is simply not shown anywhere — the
-    description stays as the clean purpose only."""
+    a linked transfer (shown as 👤) with the clean purpose as the description.
+    When there's no name, or it's unknown/ambiguous, the ids are None and — so the
+    entry is still meaningful — the description falls back to the AI's action note
+    ('gave Marsels money') when no explicit purpose was given."""
     name = (parsed.get("counterparty") or "").strip()
-    description = parsed.get("description", "") or ""
+    purpose = parsed.get("description", "") or ""
+    action_note = parsed.get("action_note", "") or ""
     if name:
         matches = [
             uid for uid in sheets.find_user_ids_by_name(name) if str(uid) != str(sender_id)
         ]
         if len(matches) == 1:
             cid = matches[0]
-            return cid, sheets.base_for(cid), description
-    return None, None, description
+            return cid, sheets.base_for(cid), purpose
+    return None, None, (purpose or action_note)
 
 
 def missing_required(parsed: dict) -> list:

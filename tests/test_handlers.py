@@ -22,45 +22,50 @@ def test_format_confirmation_shows_counterparty():
     assert "👤 Marsels" in text
 
 
-def test_resolve_counterparty_known_user(monkeypatch):
+def test_resolve_counterparty_known_user_uses_purpose(monkeypatch):
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: ["222"])
     monkeypatch.setattr(sheets, "base_for", lambda uid: "Marsels")
-    parsed = {"counterparty": "Marsels", "description": "groceries"}
+    parsed = {"counterparty": "Marsels", "description": "groceries", "action_note": "gave Marsels money"}
     cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
     assert cid == "222"
     assert cname == "Marsels"
-    assert desc == "groceries"  # name not folded in for a known transfer
+    assert desc == "groceries"  # 👤 shows the name; description is the clean purpose
 
 
-def test_resolve_counterparty_unknown_keeps_clean_description(monkeypatch):
-    # Unknown name -> no transfer, and the name is NOT folded into the description.
+def test_resolve_counterparty_unknown_uses_action_note(monkeypatch):
+    # Unknown name, no purpose -> description falls back to the action note.
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: [])
-    parsed = {"counterparty": "Marsels", "description": "groceries"}
+    parsed = {"counterparty": "Marsels", "description": "", "action_note": "gave Marsels money"}
+    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
+    assert cid is None and cname is None
+    assert desc == "gave Marsels money"
+
+
+def test_resolve_counterparty_unknown_prefers_explicit_purpose(monkeypatch):
+    monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: [])
+    parsed = {"counterparty": "Marsels", "description": "groceries", "action_note": "gave Marsels money"}
     cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
     assert cid is None and cname is None
     assert desc == "groceries"
-    assert "Marsels" not in desc
 
 
-def test_resolve_counterparty_ambiguous_keeps_clean_description(monkeypatch):
+def test_resolve_counterparty_ambiguous_uses_action_note(monkeypatch):
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: ["222", "333"])
-    parsed = {"counterparty": "Mario", "description": "lunch"}
+    parsed = {"counterparty": "Mario", "description": "", "action_note": "money from Mario"}
     cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
     assert cid is None and cname is None
-    assert desc == "lunch"
-    assert "Mario" not in desc
+    assert desc == "money from Mario"
 
 
 def test_resolve_counterparty_excludes_self(monkeypatch):
-    # Only match is the sender themselves -> not a transfer.
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: ["111"])
-    parsed = {"counterparty": "Me", "description": "x"}
+    parsed = {"counterparty": "Me", "description": "", "action_note": "gave Me money"}
     cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
     assert cid is None and cname is None
 
 
 def test_resolve_counterparty_no_name(monkeypatch):
-    parsed = {"counterparty": "", "description": "lunch"}
+    parsed = {"counterparty": "", "description": "lunch", "action_note": ""}
     cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
     assert cid is None and cname is None and desc == "lunch"
 
