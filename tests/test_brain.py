@@ -15,6 +15,38 @@ def _fake_response(text: str) -> MagicMock:
 
 
 @pytest.mark.asyncio
+async def test_match_person_returns_matched_id(monkeypatch):
+    monkeypatch.setattr(
+        brain._client.messages, "create", AsyncMock(return_value=_fake_response("222"))
+    )
+    out = await brain.match_person("andrei", [("222", "Андрей", ["andrei"]), ("333", "Bob", [])])
+    assert out == "222"
+
+
+@pytest.mark.asyncio
+async def test_match_person_none_when_unsure(monkeypatch):
+    monkeypatch.setattr(
+        brain._client.messages, "create", AsyncMock(return_value=_fake_response("none"))
+    )
+    out = await brain.match_person("xyz", [("222", "Андрей", [])])
+    assert out is None
+
+
+@pytest.mark.asyncio
+async def test_match_person_rejects_id_not_in_candidates(monkeypatch):
+    monkeypatch.setattr(
+        brain._client.messages, "create", AsyncMock(return_value=_fake_response("999"))
+    )
+    out = await brain.match_person("andrei", [("222", "Андрей", [])])
+    assert out is None  # 999 isn't a candidate -> rejected
+
+
+@pytest.mark.asyncio
+async def test_match_person_no_candidates_skips_call():
+    assert await brain.match_person("andrei", []) is None
+
+
+@pytest.mark.asyncio
 async def test_classify_and_extract_returns_signed_log(monkeypatch):
     payload = {
         "type": "log",

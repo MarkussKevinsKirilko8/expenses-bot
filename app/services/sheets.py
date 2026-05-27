@@ -144,6 +144,15 @@ def find_user_ids_by_name(name: str) -> list:
     return out
 
 
+def all_users() -> list:
+    """[(user_id, base, [nicknames...]), ...] for every registered user.
+    Reloads first so team-edited nicknames are current."""
+    return [
+        (uid, v.get("base", ""), v.get("nicknames", []))
+        for uid, v in _refresh_registry().items()
+    ]
+
+
 def base_for(user_id) -> Optional[str]:
     entry = _load_registry().get(str(user_id))
     return entry["base"] if entry else None

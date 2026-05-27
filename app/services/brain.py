@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from anthropic import AsyncAnthropic
 
@@ -78,6 +78,46 @@ async def classify_and_extract(text: str) -> dict:
     if data.get("type") not in {"log", "query", "unclear"}:
         return {"type": "unclear", "reason": ""}
     return data
+
+
+PERSON_MATCH_SYSTEM = """You match a mentioned person's name to a known user.
+The mentioned name may be mistyped, mispronounced (it may come from voice), or \
+written in a different alphabet/transliteration (e.g. Latin 'andrei' vs Cyrillic \
+'Андрей'). You are given the mentioned name and a list of known users with their \
+id and known names/nicknames.
+
+Reply with ONLY the matching user's id, or the single word "none".
+Reply "none" if you are not reasonably confident, or if two users are equally \
+likely — never guess between people. Output nothing except the id or "none"."""
+
+
+async def match_person(name: str, candidates: list) -> Optional[str]:
+    """Resolve a (possibly mistyped/transliterated) name to a known user id.
+    `candidates` is a list of (user_id, base_name, [nicknames]). Returns the
+    matched user_id (str) or None when not confident."""
+    if not name or not candidates:
+        return None
+    lines = []
+    valid = set()
+    for uid, base, nicks in candidates:
+        valid.add(str(uid))
+        known = ", ".join([base] + list(nicks)) if nicks else base
+        lines.append(f"- id={uid}: {known}")
+    user_msg = 'Mentioned name: "{}"\n\nKnown users:\n{}'.format(name, "\n".join(lines))
+    try:
+        response = await _client.messages.create(
+            model=MODEL,
+            max_tokens=20,
+            system=PERSON_MATCH_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        out = _extract_text(response).strip().strip('".').strip()
+    except Exception:
+        logger.exception("match_person failed")
+        return None
+    if out.lower() == "none" or out not in valid:
+        return None
+    return out
 
 
 async def answer_query(question: str, rows: list) -> str:

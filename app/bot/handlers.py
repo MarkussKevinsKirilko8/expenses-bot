@@ -57,21 +57,34 @@ def build_fields_for_sheet(parsed: dict, raw_text: str) -> dict:
     }
 
 
-def resolve_counterparty(parsed: dict, sender_id) -> tuple:
+async def resolve_counterparty(parsed: dict, sender_id) -> tuple:
     """Return (counterparty_id, counterparty_name) when the named person is a
-    single known bot user (not the sender) — used for the 👤 line and the linked
-    mirror entry. (None, None) when there's no name, or it's unknown/ambiguous.
+    known bot user (not the sender). (None, None) otherwise.
 
-    The description itself always carries the name already (it's the AI's full
-    'description'); 👤 only marks which other user's sheet is affected."""
+    First tries an exact match on the name/nicknames; if that finds nothing,
+    asks Claude to resolve a possibly mistyped/mispronounced/transliterated name
+    against the known users (it returns no match unless reasonably confident).
+    Either way the user still confirms via the 👤 line + ✅ before any write."""
     name = (parsed.get("counterparty") or "").strip()
-    if name:
-        matches = [
-            uid for uid in sheets.find_user_ids_by_name(name) if str(uid) != str(sender_id)
-        ]
-        if len(matches) == 1:
-            cid = matches[0]
-            return cid, sheets.base_for(cid)
+    if not name:
+        return None, None
+
+    exact = [
+        uid for uid in sheets.find_user_ids_by_name(name) if str(uid) != str(sender_id)
+    ]
+    if len(exact) == 1:
+        return exact[0], sheets.base_for(exact[0])
+    if exact:  # genuinely ambiguous exact match -> don't guess
+        return None, None
+
+    candidates = [
+        (uid, base, nicks)
+        for (uid, base, nicks) in sheets.all_users()
+        if str(uid) != str(sender_id)
+    ]
+    matched = await brain.match_person(name, candidates)
+    if matched:
+        return matched, sheets.base_for(matched)
     return None, None
 
 
@@ -152,7 +165,7 @@ async def _present_log(message: types.Message, state: FSMContext, parsed: dict, 
         await state.update_data(accumulated=raw_text)
         await message.answer(_ask_for_missing(missing))
         return
-    cp_id, cp_name = resolve_counterparty(parsed, message.from_user.id)
+    cp_id, cp_name = await resolve_counterparty(parsed, message.from_user.id)
     fields = build_fields_for_sheet(parsed, raw_text=raw_text)  # description already full
     pending = {
         "fields": fields,
