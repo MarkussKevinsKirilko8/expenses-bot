@@ -72,9 +72,13 @@ def _registry_ws():
     try:
         return ss.worksheet(REGISTRY_TITLE)
     except gspread.WorksheetNotFound:
-        ws = ss.add_worksheet(title=REGISTRY_TITLE, rows=1000, cols=3)
-        ws.update([["user_id", "base", "tab_title"]], "A1")
+        ws = ss.add_worksheet(title=REGISTRY_TITLE, rows=1000, cols=4)
+        ws.update([["user_id", "base", "tab_title", "nicknames"]], "A1")
         return ws
+
+
+def _split_nicknames(raw) -> list:
+    return [n.strip() for n in str(raw or "").split(",") if n.strip()]
 
 
 def _load_registry() -> dict:
@@ -88,15 +92,24 @@ def _load_registry() -> dict:
             cache[uid] = {
                 "base": r.get("base", "") or "",
                 "title": r.get("tab_title", "") or "",
+                "nicknames": _split_nicknames(r.get("nicknames", "")),
             }
         _registry_cache = cache
     return _registry_cache
 
 
+def _refresh_registry() -> dict:
+    """Reload from the settings tab so team-edited nicknames are picked up live."""
+    global _registry_cache
+    _registry_cache = None
+    return _load_registry()
+
+
 def _register(user_id: int, base: str, title: str) -> None:
     reg = _load_registry()
-    reg[str(user_id)] = {"base": base, "title": title}
-    _registry_ws().append_row([str(user_id), base, title], value_input_option="RAW")
+    reg[str(user_id)] = {"base": base, "title": title, "nicknames": []}
+    # 4th column (nicknames) left blank for the team to fill in by hand.
+    _registry_ws().append_row([str(user_id), base, title, ""], value_input_option="RAW")
 
 
 def _resolve_base(user: SheetUser) -> str:
@@ -118,15 +131,17 @@ def _resolve_base(user: SheetUser) -> str:
 
 
 def find_user_ids_by_name(name: str) -> list:
-    """Telegram user IDs whose sheet name matches `name` (case-insensitive)."""
+    """Telegram user IDs whose sheet name OR any team-set nickname matches `name`
+    (case-insensitive). Reloads the registry first so newly added nicknames count."""
     needle = (name or "").strip().lower()
     if not needle:
         return []
-    return [
-        uid
-        for uid, v in _load_registry().items()
-        if (v.get("base") or "").strip().lower() == needle
-    ]
+    out = []
+    for uid, v in _refresh_registry().items():
+        candidates = [v.get("base", "")] + v.get("nicknames", [])
+        if any((c or "").strip().lower() == needle for c in candidates):
+            out.append(uid)
+    return out
 
 
 def base_for(user_id) -> Optional[str]:
@@ -150,9 +165,10 @@ def _new_tab_layout(ws) -> None:
     last_col = chr(ord("A") + len(HEADER) - 1)
     try:
         ws.update([HEADER], "A1", value_input_option="RAW")
-        # Amount column centered; the rest (Currency, Description, Date, Category) left.
+        # Amount + Currency centered; Description/Date/Category left.
         ws.format("A:A", {**_CENTER, **_RED_NEG})
-        ws.format(f"B:{last_col}", _LEFT)
+        ws.format("B:B", _CENTER)
+        ws.format(f"C:{last_col}", _LEFT)
         # Header stays bold + centered across all columns (overrides the column align on row 1).
         ws.format(f"A1:{last_col}1", {"textFormat": {"bold": True}, **_CENTER})
         ws.freeze(rows=1)

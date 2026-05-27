@@ -42,12 +42,17 @@ def format_confirmation(fields: dict) -> str:
     return "\n".join(lines)
 
 
+def _capitalize(text: str) -> str:
+    text = text or ""
+    return text[:1].upper() + text[1:] if text else text
+
+
 def build_fields_for_sheet(parsed: dict, raw_text: str) -> dict:
     return {
         "category": parsed.get("category", ""),
         "amount": parsed.get("amount", ""),
         "currency": parsed.get("currency", ""),
-        "description": parsed.get("description", ""),
+        "description": _capitalize(parsed.get("description", "")),
         "raw_text": raw_text,
     }
 
@@ -80,7 +85,7 @@ def build_mirror_fields(fields: dict, mirror_description: str, sender_name: str)
     mirror = dict(fields)
     mirror["amount"] = -amount
     if mirror_description:
-        mirror["description"] = mirror_description.replace("{me}", sender_name or "")
+        mirror["description"] = _capitalize(mirror_description.replace("{me}", sender_name or ""))
     return mirror
 
 
@@ -107,10 +112,10 @@ def _confirm_keyboard() -> InlineKeyboardMarkup:
 
 def _ask_for_missing(missing: list) -> str:
     if "amount" in missing and "currency" in missing:
-        return "💬 How much was it, and in what currency?"
+        return "💬 Сколько это было и в какой валюте?"
     if "amount" in missing:
-        return "💬 How much was it?"
-    return "💬 What currency was that in?"
+        return "💬 Сколько это было?"
+    return "💬 В какой валюте?"
 
 
 async def _safe_edit(callback: CallbackQuery, text: str) -> None:
@@ -130,10 +135,10 @@ async def _resolve_text(message: types.Message) -> Optional[str]:
             text = await transcribe.transcribe_bytes(buf.read(), "voice.ogg")
         except Exception:
             logger.exception("voice download/transcription failed")
-            await message.answer("⚠️ Couldn't read the voice note, please try again or type it.")
+            await message.answer("⚠️ Не удалось обработать голосовое сообщение. Попробуйте ещё раз или напишите текстом.")
             return None
         if not text:
-            await message.answer("⚠️ Couldn't understand the voice note, please try again or type it.")
+            await message.answer("⚠️ Не удалось распознать голосовое сообщение. Попробуйте ещё раз или напишите текстом.")
             return None
         return text
     text = (message.text or "").strip()
@@ -173,16 +178,29 @@ async def _handle_expense_text(message: types.Message, state: FSMContext, text: 
             answer = await brain.answer_query(text, rows)
         except Exception:
             logger.exception("query answering failed")
-            await message.answer("⚠️ Something went wrong reading that, try again.")
+            await message.answer("⚠️ Что-то пошло не так, попробуйте ещё раз.")
             return
         await message.answer(answer)
         return
 
     if kind == "unclear":
-        await message.answer("🤔 " + (parsed.get("reason") or "?"))
+        await message.answer("🤔 " + (parsed.get("reason") or "Не понял, уточните, пожалуйста."))
         return
 
     await _present_log(message, state, parsed, raw_text=text)
+
+
+START_TEXT = (
+    "👋 Привет! Я бот для учёта расходов.\n\n"
+    "Просто напишите или надиктуйте голосом трату, например:\n"
+    "• «потратил 20 евро на обед»\n"
+    "• «дал Марселю 100 евро за продукты»\n"
+    "• «Марио дал мне 400 евро»\n\n"
+    "Я покажу разобранную запись с кнопками ✅ / ❌ — нажмите ✅, и она попадёт "
+    "в вашу таблицу. Если не указана сумма или валюта, я переспрошу.\n\n"
+    "Чтобы узнать о тратах, просто спросите, например: "
+    "«сколько я потратил в этом месяце?»"
+)
 
 
 @router.message(CommandStart())
@@ -190,14 +208,14 @@ async def handle_start(message: types.Message, state: FSMContext) -> None:
     if not message.from_user or not settings.is_allowed(message.from_user.id):
         return
     await state.set_state(None)
-    await message.answer("👋 Send an expense (text or voice), or ask about your expenses.")
+    await message.answer(START_TEXT)
 
 
 @router.message(Command("cancel"))
 async def handle_cancel(message: types.Message, state: FSMContext) -> None:
     await state.set_state(None)
     await state.update_data(pending=None, accumulated=None)
-    await message.answer("❌ Cancelled.")
+    await message.answer("❌ Отменено.")
 
 
 @router.message(LogFlow.clarifying)
@@ -250,7 +268,7 @@ async def cb_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         await asyncio.to_thread(sheets.append_expense, build_sheet_user(callback.from_user), fields)
     except Exception:
         logger.exception("sheet append failed")
-        await _safe_edit(callback, "⚠️ Couldn't save to the sheet — not logged. Try again.")
+        await _safe_edit(callback, "⚠️ Не удалось сохранить в таблицу — запись не добавлена. Попробуйте ещё раз.")
         await callback.answer()
         return
     # 2) The mirrored entry on the counterparty's sheet (best-effort, separate).
@@ -270,7 +288,7 @@ async def cb_confirm(callback: CallbackQuery, state: FSMContext) -> None:
                 await _safe_edit(
                     callback,
                     "✅\n" + format_confirmation(_card(pending))
-                    + f"\n⚠️ (saved on your side, but couldn't update {pending.get('counterparty_name')}'s sheet)",
+                    + f"\n⚠️ (сохранено у вас, но не удалось обновить таблицу {pending.get('counterparty_name')})",
                 )
                 await callback.answer()
                 return

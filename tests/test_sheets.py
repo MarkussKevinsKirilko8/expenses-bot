@@ -35,13 +35,16 @@ def test_find_user_ids_by_name_case_insensitive(monkeypatch):
         sheets,
         "_load_registry",
         lambda: {
-            "1": {"base": "Mario", "title": "Mario"},
-            "2": {"base": "mario", "title": "mario (2)"},
-            "3": {"base": "Bob", "title": "Bob"},
+            "1": {"base": "Mario", "title": "Mario", "nicknames": ["Маша", "Marik"]},
+            "2": {"base": "mario", "title": "mario (2)", "nicknames": []},
+            "3": {"base": "Bob", "title": "Bob", "nicknames": []},
         },
     )
     assert sorted(sheets.find_user_ids_by_name("MARIO")) == ["1", "2"]
     assert sheets.find_user_ids_by_name("nobody") == []
+    # matches a team-set nickname too
+    assert sheets.find_user_ids_by_name("marik") == ["1"]
+    assert sheets.find_user_ids_by_name("Маша") == ["1"]
 
 
 def test_user_for_reconstructs_known_user(monkeypatch):

@@ -61,7 +61,7 @@ def test_build_mirror_fields_flips_amount_and_fills_me():
     }
     mirror = handlers.build_mirror_fields(fields, "gave money to {me} about work", "Markuss")
     assert mirror["amount"] == -456.55
-    assert mirror["description"] == "gave money to Markuss about work"
+    assert mirror["description"] == "Gave money to Markuss about work"  # capitalized
     assert mirror["currency"] == "EUR"
 
 

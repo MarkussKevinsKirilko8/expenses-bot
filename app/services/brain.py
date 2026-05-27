@@ -23,35 +23,35 @@ If the message records an expense, return:
   "category": "<ONLY if the user explicitly names a category; otherwise empty string. NEVER invent or guess a category>",
   "amount": <a SIGNED number with NO currency symbol. NEGATIVE if money went OUT (spent, used, paid, bought), POSITIVE if money came IN (received, was given to the user). Use null if no amount is stated.>,
   "currency": "<the 3-letter ISO currency CODE if the user names a currency, else empty string. Normalise words/symbols to the code: euro/euros/eur/€ -> EUR, dollar/dollars/usd/$ -> USD, pound/pounds/gbp/£ -> GBP, etc. Always upper-case. NEVER assume a currency if none is stated.>",
-  "counterparty": "<the OTHER person's name if the money was given to / received from a specific named person (e.g. 'I gave Marsels 100' -> 'Marsels'; 'Mario gave me 400' -> 'Mario'). Empty string if no other person is named. Do NOT put the speaker ('me','I') here.>",
-  "description": "<a full, natural description of the expense from the SPEAKER's point of view, in the message's own language. ALWAYS include the other person's name when one is mentioned, plus the purpose if stated, but NOT the amount or currency. E.g. 'got money from Mario about work', 'gave money to Marsels for groceries', 'lunch', 'new wallet'.>",
-  "mirror_description": "<used ONLY when a counterparty is named: the SAME event from the OTHER person's point of view, referring to the speaker with the literal token {me}. Flip the direction. E.g. speaker 'got money from Mario about work' -> 'gave money to {me} about work'; speaker 'gave money to Marsels for groceries' -> 'got money from {me} for groceries'. Empty string when no counterparty is named.>"
+  "counterparty": "<the OTHER person's name if the money was given to / received from a specific named person (e.g. 'I gave Marsels 100' -> 'Marsels'; 'Mario gave me 400' -> 'Mario'). Keep the name EXACTLY as the user wrote it (do not translate or transliterate it). Empty string if no other person is named. Do NOT put the speaker ('me','I') here.>",
+  "description": "<a full, natural description of the expense from the SPEAKER's point of view, ALWAYS WRITTEN IN RUSSIAN and starting with a CAPITAL letter. Always include the other person's name when one is mentioned, plus the purpose if stated, but NOT the amount or currency. E.g. 'Получил деньги от Марио за работу', 'Отдал деньги Марселю за продукты', 'Обед', 'Новый кошелёк'.>",
+  "mirror_description": "<used ONLY when a counterparty is named: the SAME event from the OTHER person's point of view, IN RUSSIAN, capitalised, referring to the speaker with the literal token {me}. Flip the direction. E.g. speaker 'Получил деньги от Марио за работу' -> 'Отдал деньги {me} за работу'; speaker 'Отдал деньги Марселю за продукты' -> 'Получил деньги от {me} за продукты'. Empty string when no counterparty is named.>"
 }
 
 The amount sign is ALWAYS from the speaker's point of view: money the speaker hands out is negative, money the speaker receives is positive.
 
 Examples (amount, counterparty, description, mirror_description):
-- "used 100 euro on a new wallet" -> -100, "", "new wallet", ""
-- "spent 12.50 on lunch" -> -12.5, "", "lunch", ""
-- "i gave marsels 100 euros for groceries" -> -100, "Marsels", "gave money to Marsels for groceries", "got money from {me} for groceries"
-- "got 456.55 euro from mario about work" -> 456.55, "Mario", "got money from Mario about work", "gave money to {me} about work"
-- "Mario gave me 400 euro" -> 400, "Mario", "got money from Mario", "gave money to {me}"
-- "got paid 50" -> 50, "", "salary", ""
+- "used 100 euro on a new wallet" -> -100, "", "Новый кошелёк", ""
+- "spent 12.50 on lunch" -> -12.5, "", "Обед", ""
+- "i gave marsels 100 euros for groceries" -> -100, "Marsels", "Отдал деньги Марселю за продукты", "Получил деньги от {me} за продукты"
+- "got 456.55 euro from mario about work" -> 456.55, "Mario", "Получил деньги от Марио за работу", "Отдал деньги {me} за работу"
+- "Mario gave me 400 euro" -> 400, "Mario", "Получил деньги от Марио", "Отдал деньги {me}"
+- "got paid 50" -> 50, "", "Зарплата", ""
 
 If the message asks a question about past expenses (totals, balances, what was spent/received, when), return:
 {"type": "query"}
 
 If you genuinely cannot tell whether it is an expense or a question, return:
-{"type": "unclear", "reason": "short reason in the message's language"}
+{"type": "unclear", "reason": "<short reason IN RUSSIAN>"}
 
-Infer fields from the message's own language; do not translate the description."""
+Understand the message in any language, but ALWAYS write description / mirror_description / reason in Russian."""
 
 ANSWER_SYSTEM = """You answer questions about a personal expense ledger. \
 You are given the user's question and their ledger as JSON rows. \
 Amounts are SIGNED: negative = money spent/out, positive = money received/in. \
 Compute the answer (totals, net balance, filters by category/date as needed) and \
-reply in plain language IN THE SAME LANGUAGE AS THE QUESTION. Be concise. \
-If the data does not contain the answer, say so plainly."""
+reply in plain language ALWAYS IN RUSSIAN. Be concise. \
+If the data does not contain the answer, say so plainly in Russian."""
 
 
 def _extract_text(response: Any) -> str:
