@@ -31,6 +31,8 @@ def build_sheet_user(tg_user) -> SheetUser:
 
 def format_confirmation(fields: dict) -> str:
     lines = []
+    if fields.get("counterparty_name"):
+        lines.append(f"👤 {fields['counterparty_name']}")
     if fields.get("category"):
         lines.append(f"🏷 {fields['category']}")
     amount = fields.get("amount")
@@ -48,6 +50,28 @@ def build_fields_for_sheet(parsed: dict, raw_text: str) -> dict:
         "description": parsed.get("description", ""),
         "raw_text": raw_text,
     }
+
+
+def resolve_counterparty(parsed: dict, sender_id) -> tuple:
+    """Work out who the other party is, if any.
+
+    Returns (counterparty_id, counterparty_name, description). When the named
+    person is a single known bot user (not the sender), returns their id+name for
+    a linked transfer. When there's no name, or it's unknown/ambiguous, the name
+    (if any) is folded into the description and the ids are None (single entry)."""
+    name = (parsed.get("counterparty") or "").strip()
+    description = parsed.get("description", "") or ""
+    if not name:
+        return None, None, description
+    matches = [
+        uid for uid in sheets.find_user_ids_by_name(name) if str(uid) != str(sender_id)
+    ]
+    if len(matches) == 1:
+        cid = matches[0]
+        return cid, sheets.base_for(cid), description
+    # Unknown or ambiguous -> keep it as a plain note in the description.
+    description = f"{name} {description}".strip() if description else name
+    return None, None, description
 
 
 def missing_required(parsed: dict) -> list:
@@ -113,10 +137,16 @@ async def _present_log(message: types.Message, state: FSMContext, parsed: dict, 
         await state.update_data(accumulated=raw_text)
         await message.answer(_ask_for_missing(missing))
         return
+    cp_id, cp_name, description = resolve_counterparty(parsed, message.from_user.id)
     fields = build_fields_for_sheet(parsed, raw_text=raw_text)
+    fields["description"] = description  # may have an unknown name folded in
+    pending = {"fields": fields, "counterparty_id": cp_id, "counterparty_name": cp_name}
     await state.set_state(LogFlow.confirming)
-    await state.update_data(pending=fields)
-    await message.answer(format_confirmation(fields), reply_markup=_confirm_keyboard())
+    await state.update_data(pending=pending)
+    card = dict(fields)
+    if cp_name:
+        card["counterparty_name"] = cp_name
+    await message.answer(format_confirmation(card), reply_markup=_confirm_keyboard())
 
 
 async def _handle_expense_text(message: types.Message, state: FSMContext, text: str) -> None:
@@ -184,33 +214,48 @@ async def handle_input(message: types.Message, state: FSMContext) -> None:
     await _handle_expense_text(message, state, text)
 
 
+def _card(pending: dict) -> dict:
+    card = dict(pending["fields"])
+    if pending.get("counterparty_name"):
+        card["counterparty_name"] = pending["counterparty_name"]
+    return card
+
+
 @router.callback_query(F.data == "confirm")
 async def cb_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
-    fields = data.get("pending")
+    pending = data.get("pending")
     await state.set_state(None)
-    if not fields:
+    if not pending:
         await callback.answer()
         return
+    fields = pending["fields"]
+    cp_id = pending.get("counterparty_id")
     try:
         await asyncio.to_thread(sheets.append_expense, build_sheet_user(callback.from_user), fields)
+        if cp_id is not None:
+            cp_user = sheets.user_for(cp_id)
+            if cp_user is not None:
+                mirror = dict(fields)
+                mirror["amount"] = -(fields.get("amount") or 0)  # opposite side of the transfer
+                await asyncio.to_thread(sheets.append_expense, cp_user, mirror)
     except Exception:
         logger.exception("sheet append failed")
         await _safe_edit(callback, "⚠️ Couldn't save to the sheet — not logged. Try again.")
         await callback.answer()
         return
-    await _safe_edit(callback, "✅\n" + format_confirmation(fields))
+    await _safe_edit(callback, "✅\n" + format_confirmation(_card(pending)))
     await callback.answer()
 
 
 @router.callback_query(F.data == "cancel")
 async def cb_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
-    fields = data.get("pending")
+    pending = data.get("pending")
     await state.set_state(None)
     await state.update_data(pending=None)
-    if fields:
-        await _safe_edit(callback, "❌\n" + format_confirmation(fields))
+    if pending:
+        await _safe_edit(callback, "❌\n" + format_confirmation(_card(pending)))
     else:
         await _safe_edit(callback, "❌")
     await callback.answer()

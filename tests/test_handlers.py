@@ -1,6 +1,7 @@
 import pytest
 
 from app.bot import handlers
+from app.services import sheets
 from app.services.sheets import SheetUser
 
 
@@ -8,10 +9,57 @@ def test_format_confirmation_no_person_no_pencil():
     fields = {"category": "groceries", "amount": -100, "currency": "EUR", "description": "weekly shop"}
     text = handlers.format_confirmation(fields)
     assert "📝" not in text
+    assert "👤" not in text  # no counterparty -> no person line
     assert "groceries" in text
     assert "-100" in text
     assert "EUR" in text
     assert "weekly shop" in text
+
+
+def test_format_confirmation_shows_counterparty():
+    fields = {"counterparty_name": "Marsels", "amount": -100, "currency": "EUR", "description": "groceries"}
+    text = handlers.format_confirmation(fields)
+    assert "👤 Marsels" in text
+
+
+def test_resolve_counterparty_known_user(monkeypatch):
+    monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: ["222"])
+    monkeypatch.setattr(sheets, "base_for", lambda uid: "Marsels")
+    parsed = {"counterparty": "Marsels", "description": "groceries"}
+    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
+    assert cid == "222"
+    assert cname == "Marsels"
+    assert desc == "groceries"  # name not folded in for a known transfer
+
+
+def test_resolve_counterparty_unknown_folds_into_description(monkeypatch):
+    monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: [])
+    parsed = {"counterparty": "Marsels", "description": "groceries"}
+    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
+    assert cid is None and cname is None
+    assert "Marsels" in desc and "groceries" in desc
+
+
+def test_resolve_counterparty_ambiguous_folds_into_description(monkeypatch):
+    monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: ["222", "333"])
+    parsed = {"counterparty": "Mario", "description": "lunch"}
+    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
+    assert cid is None and cname is None
+    assert "Mario" in desc
+
+
+def test_resolve_counterparty_excludes_self(monkeypatch):
+    # Only match is the sender themselves -> not a transfer.
+    monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: ["111"])
+    parsed = {"counterparty": "Me", "description": "x"}
+    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
+    assert cid is None and cname is None
+
+
+def test_resolve_counterparty_no_name(monkeypatch):
+    parsed = {"counterparty": "", "description": "lunch"}
+    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
+    assert cid is None and cname is None and desc == "lunch"
 
 
 def test_format_confirmation_omits_empty_category():

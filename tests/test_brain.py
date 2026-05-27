@@ -35,6 +35,21 @@ async def test_classify_and_extract_returns_signed_log(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_classify_and_extract_passes_through_counterparty(monkeypatch):
+    payload = {
+        "type": "log", "category": "", "amount": -100, "currency": "EUR",
+        "description": "groceries", "counterparty": "Marsels",
+    }
+    monkeypatch.setattr(
+        brain._client.messages, "create",
+        AsyncMock(return_value=_fake_response(json.dumps(payload))),
+    )
+    result = await brain.classify_and_extract("I gave Marsels 100 euro for groceries")
+    assert result["counterparty"] == "Marsels"
+    assert result["amount"] == -100
+
+
+@pytest.mark.asyncio
 async def test_classify_and_extract_positive_amount(monkeypatch):
     payload = {"type": "log", "category": "", "amount": 300, "currency": "EUR", "description": "from Marsels"}
     monkeypatch.setattr(

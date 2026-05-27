@@ -7,39 +7,35 @@ from typing import Optional
 
 import gspread
 from google.oauth2.service_account import Credentials
+from gspread.utils import ValueRenderOption
 
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-# Per currency-tab columns. The currency itself is the tab name, not a column.
-HEADER = ["Amount", "Description", "Date", "Category"]
-HEADER_ROW = 1        # row 1 = header, row 2 = total, row 3+ = data
-TOTAL_ROW = 2
-DATA_START_ROW = 3    # newest expenses are inserted here (older rows shift down)
-_COLUMN_WIDTHS = [110, 320, 150, 140]  # Amount, Description, Date, Category
+# One tab per user. Currency is a column (right after Amount).
+HEADER = ["Amount", "Currency", "Description", "Date", "Category"]
+_COLUMN_WIDTHS = [110, 90, 320, 150, 140]
+_DATE_COL = 3  # 0-based index of the Date column (used to tell data rows from totals)
 
 REGISTRY_TITLE = "settings"
 _INVALID_TITLE_CHARS = set(r"/\?*[]:")
-_MAX_TITLE_LEN = 80  # leave headroom for the " <CURRENCY>" suffix
+_MAX_TITLE_LEN = 95
 
-# Number format: always 2 decimals, negatives in red (applied to the Amount column).
-# The decimal separator shown (comma vs dot) follows the spreadsheet locale.
+# Always 2 decimals, negatives red (decimal separator follows the sheet locale).
 _RED_NEG = {"numberFormat": {"type": "NUMBER", "pattern": "0.00;[Red]-0.00"}}
+_CENTER = {"horizontalAlignment": "CENTER"}
 
 _SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-# Lightweight user identity passed in from the handlers.
 SheetUser = namedtuple("SheetUser", ["id", "first_name", "username"])
 
-# In-memory registry cache:
-#   {str(user_id): {"base": <clean name>, "tabs": {<CURRENCY>: <tab title>}}}
-# Durable source of truth is the "settings" tab (survives restarts).
+# In-memory registry cache: {str(user_id): {"base": <name>, "title": <tab title>}}.
+# Durable source of truth is the "settings" tab.
 _registry_cache: Optional[dict] = None
 
-# Serialises tab creation so two near-simultaneous messages (e.g. the same
-# expense sent twice) can't both create a tab for the same user+currency.
-_tab_lock = threading.Lock()
+# Re-entrant so append_expense can hold it while calling _worksheet_for.
+_tab_lock = threading.RLock()
 
 
 @lru_cache(maxsize=1)
@@ -61,6 +57,13 @@ def _sanitize_title(raw: str) -> str:
     return cleaned[:_MAX_TITLE_LEN]
 
 
+def _num(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # --- registry --------------------------------------------------------------
 
 def _registry_ws():
@@ -68,8 +71,8 @@ def _registry_ws():
     try:
         return ss.worksheet(REGISTRY_TITLE)
     except gspread.WorksheetNotFound:
-        ws = ss.add_worksheet(title=REGISTRY_TITLE, rows=1000, cols=4)
-        ws.update("A1", [["user_id", "base", "currency", "tab_title"]])
+        ws = ss.add_worksheet(title=REGISTRY_TITLE, rows=1000, cols=3)
+        ws.update([["user_id", "base", "tab_title"]], "A1")
         return ws
 
 
@@ -81,28 +84,21 @@ def _load_registry() -> dict:
             uid = str(r.get("user_id", "")).strip()
             if not uid:
                 continue
-            entry = cache.setdefault(uid, {"base": "", "tabs": {}})
-            if r.get("base"):
-                entry["base"] = r["base"]
-            currency = str(r.get("currency", "")).strip().upper()
-            if currency:
-                entry["tabs"][currency] = r.get("tab_title", "")
+            cache[uid] = {
+                "base": r.get("base", "") or "",
+                "title": r.get("tab_title", "") or "",
+            }
         _registry_cache = cache
     return _registry_cache
 
 
-def _register(user_id: int, base: str, currency: str, title: str) -> None:
+def _register(user_id: int, base: str, title: str) -> None:
     reg = _load_registry()
-    entry = reg.setdefault(str(user_id), {"base": base, "tabs": {}})
-    entry["base"] = base
-    entry["tabs"][currency] = title
-    _registry_ws().append_row(
-        [str(user_id), base, currency, title], value_input_option="RAW"
-    )
+    reg[str(user_id)] = {"base": base, "title": title}
+    _registry_ws().append_row([str(user_id), base, title], value_input_option="RAW")
 
 
 def _resolve_base(user: SheetUser) -> str:
-    """The user's clean tab-name prefix (e.g. 'Mario'), stable across sessions."""
     reg = _load_registry()
     existing = reg.get(str(user.id))
     if existing and existing.get("base"):
@@ -113,44 +109,52 @@ def _resolve_base(user: SheetUser) -> str:
         or str(user.id)
     )
     taken = {
-        v["base"]
-        for k, v in reg.items()
-        if k != str(user.id) and v.get("base")
+        v["base"] for k, v in reg.items() if k != str(user.id) and v.get("base")
     }
     if desired in taken:
         return f"{desired} ({user.id})"
     return desired
 
 
+def find_user_ids_by_name(name: str) -> list:
+    """Telegram user IDs whose sheet name matches `name` (case-insensitive)."""
+    needle = (name or "").strip().lower()
+    if not needle:
+        return []
+    return [
+        uid
+        for uid, v in _load_registry().items()
+        if (v.get("base") or "").strip().lower() == needle
+    ]
+
+
+def base_for(user_id) -> Optional[str]:
+    entry = _load_registry().get(str(user_id))
+    return entry["base"] if entry else None
+
+
+def user_for(user_id) -> Optional[SheetUser]:
+    """Reconstruct a SheetUser for a known user_id (for writing to their sheet)."""
+    base = base_for(user_id)
+    if base is None:
+        return None
+    return SheetUser(id=int(user_id), first_name=base, username=None)
+
+
 # --- worksheet routing -----------------------------------------------------
 
 def _new_tab_layout(ws) -> None:
-    """Lay out a freshly created currency tab: bold header on row 1, live total
-    on row 2, rows 1-2 frozen, roomy columns, negative amounts in red."""
+    """Lay out a fresh user tab: bold centered header (row 1, frozen), centered
+    values, red 2-decimal amounts. Per-currency total rows are managed on write."""
     last_col = chr(ord("A") + len(HEADER) - 1)
     try:
-        # Row 1: bold, centered header.
-        ws.update(f"A{HEADER_ROW}", [HEADER])
-        ws.format(
-            f"A{HEADER_ROW}:{last_col}{HEADER_ROW}",
-            {"textFormat": {"bold": True}, "horizontalAlignment": "CENTER"},
-        )
-        # Row 2: live total of every amount below it. INDIRECT keeps the range
-        # literal ("A3:A") so inserting a new row at the top doesn't make Sheets
-        # drift the formula's start reference down and skip the newest rows.
-        ws.update(
-            f"A{TOTAL_ROW}",
-            [[f'=SUM(INDIRECT("A{DATA_START_ROW}:A"))']],
-            value_input_option="USER_ENTERED",
-        )
-        # Bold + centered + red-negative in one call so the ranges stay disjoint.
-        center = {"horizontalAlignment": "CENTER"}
-        ws.format(f"A{TOTAL_ROW}", {"textFormat": {"bold": True}, **center, **_RED_NEG})
-        # Freeze header + total so they stay visible while scrolling.
-        ws.freeze(rows=TOTAL_ROW)
-        # Center all values; the Amount column also gets the red 2-decimal format.
-        ws.format(f"A{DATA_START_ROW}:A10000", {**center, **_RED_NEG})
-        ws.format(f"B{DATA_START_ROW}:{last_col}10000", center)
+        ws.update([HEADER], "A1", value_input_option="RAW")
+        # Column-wide formatting (kept disjoint: column A vs columns B..E).
+        ws.format("A:A", {**_CENTER, **_RED_NEG})
+        ws.format(f"B:{last_col}", _CENTER)
+        # Header on top of the column formats so it ends up bold + centered.
+        ws.format(f"A1:{last_col}1", {"textFormat": {"bold": True}, **_CENTER})
+        ws.freeze(rows=1)
         requests = [
             {
                 "updateDimensionProperties": {
@@ -171,41 +175,76 @@ def _new_tab_layout(ws) -> None:
         logger.exception("failed to lay out new tab")
 
 
-def _cached_tab(user: SheetUser, currency: str):
-    """The user's existing worksheet for this currency, or None."""
+def _cached_tab(user: SheetUser):
     entry = _load_registry().get(str(user.id))
-    if entry and currency in entry.get("tabs", {}):
+    if entry and entry.get("title"):
         try:
-            return _spreadsheet().worksheet(entry["tabs"][currency])
+            return _spreadsheet().worksheet(entry["title"])
         except gspread.WorksheetNotFound:
             return None
     return None
 
 
-def _worksheet_for(user: SheetUser, currency: str):
-    """Get or create the user's tab for this currency (e.g. 'Mario EUR').
-
-    Tab creation is serialised with a lock and reuses an existing tab of the
-    same title, so concurrent duplicate messages never create duplicate tabs."""
-    cached = _cached_tab(user, currency)
+def _worksheet_for(user: SheetUser):
+    """Get or create the user's single tab (named by their base name)."""
+    cached = _cached_tab(user)
     if cached is not None:
         return cached
     with _tab_lock:
-        cached = _cached_tab(user, currency)  # re-check inside the lock
+        cached = _cached_tab(user)
         if cached is not None:
             return cached
         base = _resolve_base(user)
-        title = f"{base} {currency}".strip()
         ss = _spreadsheet()
         try:
-            ws = ss.worksheet(title)  # title is unique per user → reuse if present
+            ws = ss.worksheet(base)  # title is unique per user -> reuse if present
         except gspread.WorksheetNotFound:
-            ws = ss.add_worksheet(title=title, rows=1000, cols=len(HEADER))
+            ws = ss.add_worksheet(title=base, rows=1000, cols=len(HEADER))
             _new_tab_layout(ws)
         entry = _load_registry().get(str(user.id))
-        if not (entry and entry.get("tabs", {}).get(currency) == title):
-            _register(user.id, base, currency, title)
+        if not (entry and entry.get("title") == base):
+            _register(user.id, base, base)
         return ws
+
+
+# --- data rows + per-currency totals ---------------------------------------
+
+def _read_data_rows(ws) -> list:
+    """Existing expense rows (5 cells each), newest first, excluding the header
+    and the per-currency total rows (totals have no Date)."""
+    values = ws.get_values(value_render_option=ValueRenderOption.unformatted)
+    rows = []
+    for raw in values[1:]:
+        cells = (list(raw) + [""] * len(HEADER))[: len(HEADER)]
+        if str(cells[_DATE_COL]).strip():  # has a Date -> real expense row
+            rows.append(cells)
+    return rows
+
+
+def _rewrite(ws, data_rows: list) -> None:
+    """Rebuild the body: one total row per currency, then the data rows."""
+    totals: dict = {}
+    order: list = []
+    for cells in data_rows:
+        cur = str(cells[1]).strip()
+        if cur not in totals:
+            totals[cur] = 0.0
+            order.append(cur)
+        totals[cur] += _num(cells[0])
+    currencies = sorted(order)
+    total_rows = [[totals[c], c, "", "", ""] for c in currencies]
+    body = total_rows + data_rows
+
+    last_col = chr(ord("A") + len(HEADER) - 1)
+    k = len(currencies)
+    end = 1 + len(body)
+    # RAW keeps amounts numeric and dates as plain text (no date/formula parsing).
+    ws.update(body, f"A2:{last_col}{end}", value_input_option="RAW")
+    ws.freeze(rows=1 + k)
+    if k:
+        ws.format(f"A2:{last_col}{1 + k}", {"textFormat": {"bold": True}})
+    if end >= 2 + k:  # there is at least one data row
+        ws.format(f"A{2 + k}:{last_col}{end}", {"textFormat": {"bold": False}})
 
 
 # --- public API ------------------------------------------------------------
@@ -213,39 +252,26 @@ def _worksheet_for(user: SheetUser, currency: str):
 def append_expense(user: SheetUser, fields: dict, now: Optional[str] = None) -> None:
     currency = (fields.get("currency") or "").strip().upper() or "?"
     timestamp = now or datetime.now().strftime("%Y-%m-%d %H:%M")
-    row = [
-        fields.get("amount", ""),
+    new_row = [
+        _num(fields.get("amount", 0)),
+        currency,
         fields.get("description", ""),
         timestamp,
         fields.get("category", ""),
     ]
-    # Newest on top: insert right under the header/total, pushing older rows down.
-    _worksheet_for(user, currency).insert_row(
-        row, index=DATA_START_ROW, value_input_option="USER_ENTERED"
-    )
+    with _tab_lock:
+        ws = _worksheet_for(user)
+        data_rows = [new_row] + _read_data_rows(ws)  # newest on top
+        _rewrite(ws, data_rows)
 
 
 def read_all(user: SheetUser) -> list:
-    """Every expense for the user across all their currency tabs. Each row is
-    tagged with its Currency (from the tab name) so the AI can answer per
-    currency, even though the sheet itself has no currency column."""
-    reg = _load_registry()
-    entry = reg.get(str(user.id))
-    if not entry:
+    """All of the user's expense rows (excludes the total rows)."""
+    entry = _load_registry().get(str(user.id))
+    if not entry or not entry.get("title"):
         return []
-    ss = _spreadsheet()
-    records = []
-    width = len(HEADER)
-    for currency, title in entry.get("tabs", {}).items():
-        try:
-            ws = ss.worksheet(title)
-        except gspread.WorksheetNotFound:
-            continue
-        for row in ws.get_all_values()[DATA_START_ROW - 1:]:
-            cells = (row + [""] * width)[:width]
-            if not any(c != "" for c in cells):
-                continue
-            record = dict(zip(HEADER, cells))
-            record["Currency"] = currency
-            records.append(record)
-    return records
+    try:
+        ws = _spreadsheet().worksheet(entry["title"])
+    except gspread.WorksheetNotFound:
+        return []
+    return [dict(zip(HEADER, cells)) for cells in _read_data_rows(ws)]
