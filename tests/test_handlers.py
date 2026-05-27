@@ -32,20 +32,23 @@ def test_resolve_counterparty_known_user(monkeypatch):
     assert desc == "groceries"  # name not folded in for a known transfer
 
 
-def test_resolve_counterparty_unknown_folds_into_description(monkeypatch):
+def test_resolve_counterparty_unknown_keeps_clean_description(monkeypatch):
+    # Unknown name -> no transfer, and the name is NOT folded into the description.
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: [])
     parsed = {"counterparty": "Marsels", "description": "groceries"}
     cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
     assert cid is None and cname is None
-    assert "Marsels" in desc and "groceries" in desc
+    assert desc == "groceries"
+    assert "Marsels" not in desc
 
 
-def test_resolve_counterparty_ambiguous_folds_into_description(monkeypatch):
+def test_resolve_counterparty_ambiguous_keeps_clean_description(monkeypatch):
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: ["222", "333"])
     parsed = {"counterparty": "Mario", "description": "lunch"}
     cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
     assert cid is None and cname is None
-    assert "Mario" in desc
+    assert desc == "lunch"
+    assert "Mario" not in desc
 
 
 def test_resolve_counterparty_excludes_self(monkeypatch):

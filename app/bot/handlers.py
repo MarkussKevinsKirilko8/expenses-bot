@@ -57,20 +57,18 @@ def resolve_counterparty(parsed: dict, sender_id) -> tuple:
 
     Returns (counterparty_id, counterparty_name, description). When the named
     person is a single known bot user (not the sender), returns their id+name for
-    a linked transfer. When there's no name, or it's unknown/ambiguous, the name
-    (if any) is folded into the description and the ids are None (single entry)."""
+    a linked transfer (shown as 👤). When there's no name, or it's unknown or
+    ambiguous, the ids are None and the name is simply not shown anywhere — the
+    description stays as the clean purpose only."""
     name = (parsed.get("counterparty") or "").strip()
     description = parsed.get("description", "") or ""
-    if not name:
-        return None, None, description
-    matches = [
-        uid for uid in sheets.find_user_ids_by_name(name) if str(uid) != str(sender_id)
-    ]
-    if len(matches) == 1:
-        cid = matches[0]
-        return cid, sheets.base_for(cid), description
-    # Unknown or ambiguous -> keep it as a plain note in the description.
-    description = f"{name} {description}".strip() if description else name
+    if name:
+        matches = [
+            uid for uid in sheets.find_user_ids_by_name(name) if str(uid) != str(sender_id)
+        ]
+        if len(matches) == 1:
+            cid = matches[0]
+            return cid, sheets.base_for(cid), description
     return None, None, description
 
 

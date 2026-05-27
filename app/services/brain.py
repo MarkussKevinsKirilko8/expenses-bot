@@ -23,18 +23,19 @@ If the message records an expense, return:
   "category": "<ONLY if the user explicitly names a category; otherwise empty string. NEVER invent or guess a category>",
   "amount": <a SIGNED number with NO currency symbol. NEGATIVE if money went OUT (spent, used, paid, bought), POSITIVE if money came IN (received, was given to the user). Use null if no amount is stated.>,
   "currency": "<the 3-letter ISO currency CODE if the user names a currency, else empty string. Normalise words/symbols to the code: euro/euros/eur/€ -> EUR, dollar/dollars/usd/$ -> USD, pound/pounds/gbp/£ -> GBP, etc. Always upper-case. NEVER assume a currency if none is stated.>",
-  "description": "what it was about, in the message's own language",
+  "description": "<the PURPOSE only — what the money was FOR (e.g. 'groceries', 'lunch', 'new wallet'), in the message's own language. Do NOT include any person's name, and do NOT include words like 'gave', 'received', 'me', or the amount. Empty string if no purpose is stated.>",
   "counterparty": "<the OTHER person's name if the money was given to / received from a specific named person (e.g. 'I gave Marsels 100' -> 'Marsels'; 'Mario gave me 400' -> 'Mario'). Empty string if no other person is named. Do NOT put the speaker ('me','I') here.>"
 }
 
 The amount sign is ALWAYS from the speaker's point of view: money the speaker hands out is negative, money the speaker receives is positive.
 
-Sign examples:
-- "used 100 euro on a new wallet" -> amount: -100 (money went out), counterparty: ""
-- "spent 12.50 on lunch" -> amount: -12.5, counterparty: ""
-- "I gave Marsels 100 euro for groceries" -> amount: -100, counterparty: "Marsels"
-- "Mario gave me 400 euro" -> amount: 400 (money came in), counterparty: "Mario"
-- "got paid 50" -> amount: 50, counterparty: ""
+Examples (amount, counterparty, description):
+- "used 100 euro on a new wallet" -> -100, "", "new wallet"
+- "spent 12.50 on lunch" -> -12.5, "", "lunch"
+- "I gave Marsels 100 euro for groceries" -> -100, "Marsels", "groceries"
+- "i gave mario 100 euros" -> -100, "Mario", ""
+- "Mario gave me 400 euro" -> 400, "Mario", ""
+- "got paid 50" -> 50, "", ""
 
 If the message asks a question about past expenses (totals, balances, what was spent/received, when), return:
 {"type": "query"}
