@@ -231,19 +231,35 @@ async def cb_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         return
     fields = pending["fields"]
     cp_id = pending.get("counterparty_id")
+    # 1) The user's own entry. If this fails, nothing was written — safe to retry.
     try:
         await asyncio.to_thread(sheets.append_expense, build_sheet_user(callback.from_user), fields)
-        if cp_id is not None:
-            cp_user = sheets.user_for(cp_id)
-            if cp_user is not None:
-                mirror = dict(fields)
-                mirror["amount"] = -(fields.get("amount") or 0)  # opposite side of the transfer
-                await asyncio.to_thread(sheets.append_expense, cp_user, mirror)
     except Exception:
         logger.exception("sheet append failed")
         await _safe_edit(callback, "⚠️ Couldn't save to the sheet — not logged. Try again.")
         await callback.answer()
         return
+    # 2) The mirrored entry on the counterparty's sheet (best-effort, separate).
+    if cp_id is not None:
+        cp_user = sheets.user_for(cp_id)
+        if cp_user is not None:
+            try:
+                amount = float(fields.get("amount") or 0)
+            except (TypeError, ValueError):
+                amount = 0.0
+            mirror = dict(fields)
+            mirror["amount"] = -amount  # opposite side of the transfer
+            try:
+                await asyncio.to_thread(sheets.append_expense, cp_user, mirror)
+            except Exception:
+                logger.exception("mirror append failed")
+                await _safe_edit(
+                    callback,
+                    "✅\n" + format_confirmation(_card(pending))
+                    + f"\n⚠️ (saved on your side, but couldn't update {pending.get('counterparty_name')}'s sheet)",
+                )
+                await callback.answer()
+                return
     await _safe_edit(callback, "✅\n" + format_confirmation(_card(pending)))
     await callback.answer()
 
