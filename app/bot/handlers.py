@@ -70,8 +70,11 @@ def resolve_counterparty(parsed: dict, sender_id) -> tuple:
         ]
         if len(matches) == 1:
             cid = matches[0]
-            return cid, sheets.base_for(cid), purpose
-    return None, None, (purpose or action_note)
+            return cid, sheets.base_for(cid), purpose  # 👤 shows who; description = clean purpose
+        # Named but unknown/ambiguous -> the action note carries the meaning
+        # (it already includes the purpose when there is one).
+        return None, None, (action_note or purpose)
+    return None, None, purpose
 
 
 def missing_required(parsed: dict) -> list:

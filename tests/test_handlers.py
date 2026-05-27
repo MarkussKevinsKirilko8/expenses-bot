@@ -41,12 +41,14 @@ def test_resolve_counterparty_unknown_uses_action_note(monkeypatch):
     assert desc == "gave Marsels money"
 
 
-def test_resolve_counterparty_unknown_prefers_explicit_purpose(monkeypatch):
+def test_resolve_counterparty_unknown_with_purpose_uses_action_note(monkeypatch):
+    # Unknown named transfer WITH a purpose -> the action note (which already
+    # folds the purpose in: "gave money for groceries") is used, not bare "groceries".
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: [])
-    parsed = {"counterparty": "Marsels", "description": "groceries", "action_note": "gave Marsels money"}
+    parsed = {"counterparty": "Marsels", "description": "groceries", "action_note": "gave money for groceries"}
     cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
     assert cid is None and cname is None
-    assert desc == "groceries"
+    assert desc == "gave money for groceries"
 
 
 def test_resolve_counterparty_ambiguous_uses_action_note(monkeypatch):
