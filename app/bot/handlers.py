@@ -53,28 +53,35 @@ def build_fields_for_sheet(parsed: dict, raw_text: str) -> dict:
 
 
 def resolve_counterparty(parsed: dict, sender_id) -> tuple:
-    """Work out who the other party is, if any.
+    """Return (counterparty_id, counterparty_name) when the named person is a
+    single known bot user (not the sender) — used for the 👤 line and the linked
+    mirror entry. (None, None) when there's no name, or it's unknown/ambiguous.
 
-    Returns (counterparty_id, counterparty_name, description). When the named
-    person is a single known bot user (not the sender), returns their id+name for
-    a linked transfer (shown as 👤) with the clean purpose as the description.
-    When there's no name, or it's unknown/ambiguous, the ids are None and — so the
-    entry is still meaningful — the description falls back to the AI's action note
-    ('gave Marsels money') when no explicit purpose was given."""
+    The description itself always carries the name already (it's the AI's full
+    'description'); 👤 only marks which other user's sheet is affected."""
     name = (parsed.get("counterparty") or "").strip()
-    purpose = parsed.get("description", "") or ""
-    action_note = parsed.get("action_note", "") or ""
     if name:
         matches = [
             uid for uid in sheets.find_user_ids_by_name(name) if str(uid) != str(sender_id)
         ]
         if len(matches) == 1:
             cid = matches[0]
-            return cid, sheets.base_for(cid), purpose  # 👤 shows who; description = clean purpose
-        # Named but unknown/ambiguous -> the action note carries the meaning
-        # (it already includes the purpose when there is one).
-        return None, None, (action_note or purpose)
-    return None, None, purpose
+            return cid, sheets.base_for(cid)
+    return None, None
+
+
+def build_mirror_fields(fields: dict, mirror_description: str, sender_name: str) -> dict:
+    """The counterparty's side of a linked transfer: amount flipped, and the
+    description rephrased from their point of view ({me} -> the sender's name)."""
+    try:
+        amount = float(fields.get("amount") or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    mirror = dict(fields)
+    mirror["amount"] = -amount
+    if mirror_description:
+        mirror["description"] = mirror_description.replace("{me}", sender_name or "")
+    return mirror
 
 
 def missing_required(parsed: dict) -> list:
@@ -140,10 +147,14 @@ async def _present_log(message: types.Message, state: FSMContext, parsed: dict, 
         await state.update_data(accumulated=raw_text)
         await message.answer(_ask_for_missing(missing))
         return
-    cp_id, cp_name, description = resolve_counterparty(parsed, message.from_user.id)
-    fields = build_fields_for_sheet(parsed, raw_text=raw_text)
-    fields["description"] = description  # may have an unknown name folded in
-    pending = {"fields": fields, "counterparty_id": cp_id, "counterparty_name": cp_name}
+    cp_id, cp_name = resolve_counterparty(parsed, message.from_user.id)
+    fields = build_fields_for_sheet(parsed, raw_text=raw_text)  # description already full
+    pending = {
+        "fields": fields,
+        "counterparty_id": cp_id,
+        "counterparty_name": cp_name,
+        "mirror_description": parsed.get("mirror_description", "") or "",
+    }
     await state.set_state(LogFlow.confirming)
     await state.update_data(pending=pending)
     card = dict(fields)
@@ -246,12 +257,12 @@ async def cb_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     if cp_id is not None:
         cp_user = sheets.user_for(cp_id)
         if cp_user is not None:
-            try:
-                amount = float(fields.get("amount") or 0)
-            except (TypeError, ValueError):
-                amount = 0.0
-            mirror = dict(fields)
-            mirror["amount"] = -amount  # opposite side of the transfer
+            sender_name = (
+                sheets.base_for(callback.from_user.id)
+                or callback.from_user.first_name
+                or "me"
+            )
+            mirror = build_mirror_fields(fields, pending.get("mirror_description", ""), sender_name)
             try:
                 await asyncio.to_thread(sheets.append_expense, cp_user, mirror)
             except Exception:

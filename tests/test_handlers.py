@@ -22,54 +22,54 @@ def test_format_confirmation_shows_counterparty():
     assert "👤 Marsels" in text
 
 
-def test_resolve_counterparty_known_user_uses_purpose(monkeypatch):
+def test_resolve_counterparty_known_user(monkeypatch):
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: ["222"])
     monkeypatch.setattr(sheets, "base_for", lambda uid: "Marsels")
-    parsed = {"counterparty": "Marsels", "description": "groceries", "action_note": "gave Marsels money"}
-    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
+    parsed = {"counterparty": "Marsels", "description": "gave money to Marsels for groceries"}
+    cid, cname = handlers.resolve_counterparty(parsed, sender_id=111)
     assert cid == "222"
     assert cname == "Marsels"
-    assert desc == "groceries"  # 👤 shows the name; description is the clean purpose
 
 
-def test_resolve_counterparty_unknown_uses_action_note(monkeypatch):
-    # Unknown name, no purpose -> description falls back to the action note.
+def test_resolve_counterparty_unknown_is_none(monkeypatch):
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: [])
-    parsed = {"counterparty": "Marsels", "description": "", "action_note": "gave Marsels money"}
-    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
-    assert cid is None and cname is None
-    assert desc == "gave Marsels money"
+    parsed = {"counterparty": "Marsels", "description": "gave money to Marsels"}
+    assert handlers.resolve_counterparty(parsed, sender_id=111) == (None, None)
 
 
-def test_resolve_counterparty_unknown_with_purpose_uses_action_note(monkeypatch):
-    # Unknown named transfer WITH a purpose -> the action note (which already
-    # folds the purpose in: "gave money for groceries") is used, not bare "groceries".
-    monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: [])
-    parsed = {"counterparty": "Marsels", "description": "groceries", "action_note": "gave money for groceries"}
-    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
-    assert cid is None and cname is None
-    assert desc == "gave money for groceries"
-
-
-def test_resolve_counterparty_ambiguous_uses_action_note(monkeypatch):
+def test_resolve_counterparty_ambiguous_is_none(monkeypatch):
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: ["222", "333"])
-    parsed = {"counterparty": "Mario", "description": "", "action_note": "money from Mario"}
-    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
-    assert cid is None and cname is None
-    assert desc == "money from Mario"
+    parsed = {"counterparty": "Mario", "description": "got money from Mario"}
+    assert handlers.resolve_counterparty(parsed, sender_id=111) == (None, None)
 
 
 def test_resolve_counterparty_excludes_self(monkeypatch):
     monkeypatch.setattr(sheets, "find_user_ids_by_name", lambda name: ["111"])
-    parsed = {"counterparty": "Me", "description": "", "action_note": "gave Me money"}
-    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
-    assert cid is None and cname is None
+    parsed = {"counterparty": "Me", "description": "x"}
+    assert handlers.resolve_counterparty(parsed, sender_id=111) == (None, None)
 
 
-def test_resolve_counterparty_no_name(monkeypatch):
-    parsed = {"counterparty": "", "description": "lunch", "action_note": ""}
-    cid, cname, desc = handlers.resolve_counterparty(parsed, sender_id=111)
-    assert cid is None and cname is None and desc == "lunch"
+def test_resolve_counterparty_no_name():
+    parsed = {"counterparty": "", "description": "lunch"}
+    assert handlers.resolve_counterparty(parsed, sender_id=111) == (None, None)
+
+
+def test_build_mirror_fields_flips_amount_and_fills_me():
+    fields = {
+        "amount": 456.55, "currency": "EUR",
+        "description": "got money from Mario about work", "category": "",
+    }
+    mirror = handlers.build_mirror_fields(fields, "gave money to {me} about work", "Markuss")
+    assert mirror["amount"] == -456.55
+    assert mirror["description"] == "gave money to Markuss about work"
+    assert mirror["currency"] == "EUR"
+
+
+def test_build_mirror_fields_keeps_description_if_no_template():
+    fields = {"amount": -10, "currency": "EUR", "description": "x"}
+    mirror = handlers.build_mirror_fields(fields, "", "Markuss")
+    assert mirror["amount"] == 10
+    assert mirror["description"] == "x"  # unchanged when no mirror template
 
 
 def test_format_confirmation_omits_empty_category():

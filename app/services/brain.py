@@ -23,21 +23,20 @@ If the message records an expense, return:
   "category": "<ONLY if the user explicitly names a category; otherwise empty string. NEVER invent or guess a category>",
   "amount": <a SIGNED number with NO currency symbol. NEGATIVE if money went OUT (spent, used, paid, bought), POSITIVE if money came IN (received, was given to the user). Use null if no amount is stated.>,
   "currency": "<the 3-letter ISO currency CODE if the user names a currency, else empty string. Normalise words/symbols to the code: euro/euros/eur/€ -> EUR, dollar/dollars/usd/$ -> USD, pound/pounds/gbp/£ -> GBP, etc. Always upper-case. NEVER assume a currency if none is stated.>",
-  "description": "<the PURPOSE only — what the money was FOR (e.g. 'groceries', 'lunch', 'new wallet'), in the message's own language. Do NOT include any person's name, and do NOT include words like 'gave', 'received', 'me', or the amount. Empty string if no purpose is stated.>",
   "counterparty": "<the OTHER person's name if the money was given to / received from a specific named person (e.g. 'I gave Marsels 100' -> 'Marsels'; 'Mario gave me 400' -> 'Mario'). Empty string if no other person is named. Do NOT put the speaker ('me','I') here.>",
-  "action_note": "<used ONLY when a person is named: a SHORT natural phrase in the message's own language. If NO purpose was stated, name the person, e.g. 'gave Marsels money', 'money from Mario'. If a purpose WAS stated, describe the action + purpose WITHOUT the name, e.g. 'gave money for groceries', 'money for the loan'. Empty string when no person is named.>"
+  "description": "<a full, natural description of the expense from the SPEAKER's point of view, in the message's own language. ALWAYS include the other person's name when one is mentioned, plus the purpose if stated, but NOT the amount or currency. E.g. 'got money from Mario about work', 'gave money to Marsels for groceries', 'lunch', 'new wallet'.>",
+  "mirror_description": "<used ONLY when a counterparty is named: the SAME event from the OTHER person's point of view, referring to the speaker with the literal token {me}. Flip the direction. E.g. speaker 'got money from Mario about work' -> 'gave money to {me} about work'; speaker 'gave money to Marsels for groceries' -> 'got money from {me} for groceries'. Empty string when no counterparty is named.>"
 }
 
 The amount sign is ALWAYS from the speaker's point of view: money the speaker hands out is negative, money the speaker receives is positive.
 
-Examples (amount, counterparty, description, action_note):
+Examples (amount, counterparty, description, mirror_description):
 - "used 100 euro on a new wallet" -> -100, "", "new wallet", ""
 - "spent 12.50 on lunch" -> -12.5, "", "lunch", ""
-- "I gave Marsels 100 euro for groceries" -> -100, "Marsels", "groceries", "gave money for groceries"
-- "i gave marsels 300 dollars" -> -300, "Marsels", "", "gave Marsels money"
-- "Mario gave me 400 euro" -> 400, "Mario", "", "money from Mario"
-- "Mario gave me 400 euro for the loan" -> 400, "Mario", "loan", "money for the loan"
-- "got paid 50" -> 50, "", "", ""
+- "i gave marsels 100 euros for groceries" -> -100, "Marsels", "gave money to Marsels for groceries", "got money from {me} for groceries"
+- "got 456.55 euro from mario about work" -> 456.55, "Mario", "got money from Mario about work", "gave money to {me} about work"
+- "Mario gave me 400 euro" -> 400, "Mario", "got money from Mario", "gave money to {me}"
+- "got paid 50" -> 50, "", "salary", ""
 
 If the message asks a question about past expenses (totals, balances, what was spent/received, when), return:
 {"type": "query"}
