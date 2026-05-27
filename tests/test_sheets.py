@@ -134,6 +134,18 @@ def test_append_multi_currency_makes_two_totals(monkeypatch):
     fake_ws.freeze.assert_called_with(rows=3)
 
 
+def test_mark_user_started_first_time_then_not(monkeypatch):
+    appended = []
+    fake_ws = MagicMock()
+    fake_ws.append_row.side_effect = lambda row, **kw: appended.append(row)
+    monkeypatch.setattr(sheets, "_started_ws", lambda: fake_ws)
+    monkeypatch.setattr(sheets, "_started_cache", set(), raising=False)
+
+    assert sheets.mark_user_started(555) is True   # first /start -> fires
+    assert sheets.mark_user_started(555) is False  # repeat -> does not fire
+    assert appended == [["555"]]                   # written to the sheet exactly once
+
+
 def test_read_all_excludes_total_rows(monkeypatch):
     fake_ws = MagicMock()
     fake_ws.get_values.return_value = [

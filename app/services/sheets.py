@@ -35,6 +35,10 @@ SheetUser = namedtuple("SheetUser", ["id", "first_name", "username"])
 # Durable source of truth is the "settings" tab.
 _registry_cache: Optional[dict] = None
 
+# Hidden tab recording which users have ever pressed /start (for the join webhook).
+STARTED_TITLE = "started"
+_started_cache: Optional[set] = None
+
 # Re-entrant so append_expense can hold it while calling _worksheet_for.
 _tab_lock = threading.RLock()
 
@@ -142,6 +146,46 @@ def find_user_ids_by_name(name: str) -> list:
         if any((c or "").strip().lower() == needle for c in candidates):
             out.append(uid)
     return out
+
+
+def _started_ws():
+    ss = _spreadsheet()
+    try:
+        return ss.worksheet(STARTED_TITLE)
+    except gspread.WorksheetNotFound:
+        ws = ss.add_worksheet(title=STARTED_TITLE, rows=1000, cols=1)
+        ws.update([["telegram_user_id"]], "A1")
+        try:  # keep this internal bookkeeping tab hidden from the tab bar
+            ss.batch_update({"requests": [{
+                "updateSheetProperties": {
+                    "properties": {"sheetId": ws.id, "hidden": True},
+                    "fields": "hidden",
+                }
+            }]})
+        except Exception:
+            logger.exception("failed to hide 'started' tab")
+        return ws
+
+
+def _load_started() -> set:
+    global _started_cache
+    if _started_cache is None:
+        col = _started_ws().col_values(1)  # includes the header
+        _started_cache = {str(v).strip() for v in col[1:] if str(v).strip()}
+    return _started_cache
+
+
+def mark_user_started(user_id) -> bool:
+    """Record a /start. Returns True only the FIRST time a user is seen (so the
+    join webhook fires once). Lives in the Google Sheet, so it survives redeploys."""
+    uid = str(user_id)
+    with _tab_lock:
+        seen = _load_started()
+        if uid in seen:
+            return False
+        seen.add(uid)
+        _started_ws().append_row([uid], value_input_option="RAW")
+        return True
 
 
 def all_users() -> list:

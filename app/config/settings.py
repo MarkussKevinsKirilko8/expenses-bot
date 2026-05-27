@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     allowed_user_ids: str = ""
     # uvicorn port for the /health endpoint; unique per bot on the server.
     port: int = 8081
+    # Bearer secret for the "new user joined" notification webhook. Empty = skip.
+    bot_start_webhook_secret: str = ""
 
     model_config = {"env_file": ".env", "extra": "ignore"}
 

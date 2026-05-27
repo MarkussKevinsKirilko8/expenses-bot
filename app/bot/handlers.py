@@ -14,6 +14,7 @@ from aiogram.types import (
 
 from app.config.settings import settings
 from app.services import brain, sheets, transcribe
+from app.services.bot_start_webhook import schedule_bot_start_notification
 from app.services.sheets import SheetUser
 
 router = Router()
@@ -221,7 +222,11 @@ async def handle_start(message: types.Message, state: FSMContext) -> None:
     if not message.from_user or not settings.is_allowed(message.from_user.id):
         return
     await state.set_state(None)
+    # First-ever /start? (durable, lives in the Sheet) -> notify, in the background.
+    is_new = await asyncio.to_thread(sheets.mark_user_started, message.from_user.id)
     await message.answer(START_TEXT)
+    if is_new:
+        schedule_bot_start_notification(message.from_user)
 
 
 @router.message(Command("cancel"))
